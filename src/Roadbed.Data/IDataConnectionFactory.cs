@@ -32,9 +32,10 @@ public interface IDataConnectionFactory
     /// <summary>
     /// Creates and returns a new instance of a database connection.
     /// </summary>
+    /// <param name="cancellationToken">Token to notify when an operation should be canceled.</param>
     /// <returns>An <see cref="IDbConnection"/> representing the newly created database connection.
     /// The connection has been opened before it is returned.</returns>
-    Task<IDbConnection> CreateOpenConnectionAsync();
+    Task<IDbConnection> CreateOpenConnectionAsync(CancellationToken cancellationToken);
 
     #endregion Public Methods
 }

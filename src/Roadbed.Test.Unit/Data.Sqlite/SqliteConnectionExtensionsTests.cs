@@ -14,6 +14,11 @@ using Roadbed.Data.Sqlite;
 [TestClass]
 public class SqliteConnectionExtensionsTests
 {
+    /// <summary>
+    /// Gets or sets object used to store information that is provided to unit tests.
+    /// </summary>
+    public TestContext TestContext { get; set; }
+
     #region Public Methods
 
     /// <summary>
@@ -25,7 +30,7 @@ public class SqliteConnectionExtensionsTests
     {
         // Arrange (Given)
         var connectionFactory = this.CreateConnectionFactory();
-        using var connection = (SqliteConnection)await connectionFactory.CreateOpenConnectionAsync();
+        using var connection = (SqliteConnection)await connectionFactory.CreateOpenConnectionAsync(this.TestContext.CancellationToken);
 
         var keepAlive = connection.KeepAlive();
         keepAlive.Dispose();
@@ -49,12 +54,12 @@ public class SqliteConnectionExtensionsTests
     {
         // Arrange (Given)
         var connectionFactory = this.CreateConnectionFactory();
-        using var connection = (SqliteConnection)await connectionFactory.CreateOpenConnectionAsync();
+        using var connection = (SqliteConnection)await connectionFactory.CreateOpenConnectionAsync(this.TestContext.CancellationToken);
 
         // Create table while KeepAlive is active
         using (var keepAlive = connection.KeepAlive())
         {
-            using var createConnection = await connectionFactory.CreateOpenConnectionAsync();
+            using var createConnection = await connectionFactory.CreateOpenConnectionAsync(this.TestContext.CancellationToken);
             using var createCommand = createConnection.CreateCommand();
             createCommand.CommandText = "CREATE TABLE TestTable (Id INTEGER PRIMARY KEY)";
             createCommand.ExecuteNonQuery();
@@ -66,7 +71,7 @@ public class SqliteConnectionExtensionsTests
         bool tableExists = false;
         try
         {
-            using var queryConnection = await connectionFactory.CreateOpenConnectionAsync();
+            using var queryConnection = await connectionFactory.CreateOpenConnectionAsync(this.TestContext.CancellationToken);
             using var queryCommand = queryConnection.CreateCommand();
             queryCommand.CommandText = "SELECT COUNT(*) FROM TestTable";
             queryCommand.ExecuteScalar();
@@ -125,7 +130,7 @@ public class SqliteConnectionExtensionsTests
     {
         // Arrange (Given)
         var connectionFactory = this.CreateConnectionFactory();
-        using var connection = (SqliteConnection)await connectionFactory.CreateOpenConnectionAsync();
+        using var connection = (SqliteConnection)await connectionFactory.CreateOpenConnectionAsync(this.TestContext.CancellationToken);
         var keepAlive = connection.KeepAlive();
 
         // Act (When)
@@ -147,7 +152,7 @@ public class SqliteConnectionExtensionsTests
     {
         // Arrange (Given)
         var connectionFactory = this.CreateConnectionFactory();
-        using var connection = (SqliteConnection)await connectionFactory.CreateOpenConnectionAsync();
+        using var connection = (SqliteConnection)await connectionFactory.CreateOpenConnectionAsync(this.TestContext.CancellationToken);
         var keepAlive = connection.KeepAlive();
         bool exceptionThrown = false;
 
@@ -178,11 +183,11 @@ public class SqliteConnectionExtensionsTests
     {
         // Arrange (Given)
         var connectionFactory = this.CreateConnectionFactory();
-        using var connection = (SqliteConnection)await connectionFactory.CreateOpenConnectionAsync();
+        using var connection = (SqliteConnection)await connectionFactory.CreateOpenConnectionAsync(this.TestContext.CancellationToken);
         using (var keepAlive = connection.KeepAlive())
         {
             // Create table with first connection
-            using (var createConnection = await connectionFactory.CreateOpenConnectionAsync())
+            using (var createConnection = await connectionFactory.CreateOpenConnectionAsync(this.TestContext.CancellationToken))
             {
                 using var createCommand = createConnection.CreateCommand();
                 createCommand.CommandText = "CREATE TABLE TestTable (Id INTEGER PRIMARY KEY, Name TEXT)";
@@ -190,7 +195,7 @@ public class SqliteConnectionExtensionsTests
             }
 
             // Insert data with second connection
-            using (var insertConnection = await connectionFactory.CreateOpenConnectionAsync())
+            using (var insertConnection = await connectionFactory.CreateOpenConnectionAsync(this.TestContext.CancellationToken))
             {
                 using var insertCommand = insertConnection.CreateCommand();
                 insertCommand.CommandText = "INSERT INTO TestTable (Id, Name) VALUES (1, 'Test')";
@@ -198,7 +203,7 @@ public class SqliteConnectionExtensionsTests
             }
 
             // Act (When) - Query data with third connection
-            using (var queryConnection = await connectionFactory.CreateOpenConnectionAsync())
+            using (var queryConnection = await connectionFactory.CreateOpenConnectionAsync(this.TestContext.CancellationToken))
             {
                 using var queryCommand = queryConnection.CreateCommand();
                 queryCommand.CommandText = "SELECT COUNT(*) FROM TestTable";
@@ -248,7 +253,7 @@ public class SqliteConnectionExtensionsTests
     {
         // Arrange (Given)
         var connectionFactory = this.CreateConnectionFactory();
-        using var connection = (SqliteConnection)await connectionFactory.CreateOpenConnectionAsync();
+        using var connection = (SqliteConnection)await connectionFactory.CreateOpenConnectionAsync(this.TestContext.CancellationToken);
 
         // Act (When)
         var keepAlive = connection.KeepAlive();
@@ -272,7 +277,7 @@ public class SqliteConnectionExtensionsTests
     {
         // Arrange (Given)
         var connectionFactory = this.CreateConnectionFactory();
-        using var connection = (SqliteConnection)await connectionFactory.CreateOpenConnectionAsync();
+        using var connection = (SqliteConnection)await connectionFactory.CreateOpenConnectionAsync(this.TestContext.CancellationToken);
 
         // Act (When)
         var keepAlive = connection.KeepAlive();
@@ -299,11 +304,11 @@ public class SqliteConnectionExtensionsTests
     {
         // Arrange (Given)
         var connectionFactory = this.CreateConnectionFactory();
-        using var connection = (SqliteConnection)await connectionFactory.CreateOpenConnectionAsync();
+        using var connection = (SqliteConnection)await connectionFactory.CreateOpenConnectionAsync(this.TestContext.CancellationToken);
         using var keepAlive = connection.KeepAlive();
 
         // Act (When) - Create table
-        using var createConnection = await connectionFactory.CreateOpenConnectionAsync();
+        using var createConnection = await connectionFactory.CreateOpenConnectionAsync(this.TestContext.CancellationToken);
         using var createCommand = createConnection.CreateCommand();
         createCommand.CommandText = "CREATE TABLE TestTable (Id INTEGER PRIMARY KEY)";
         int result = createCommand.ExecuteNonQuery();
@@ -326,11 +331,11 @@ public class SqliteConnectionExtensionsTests
         var connectionFactory = this.CreateConnectionFactory();
 
         // Act (When)
-        using var connection = (SqliteConnection)await connectionFactory.CreateOpenConnectionAsync();
+        using var connection = (SqliteConnection)await connectionFactory.CreateOpenConnectionAsync(this.TestContext.CancellationToken);
         using (var keepAlive = connection.KeepAlive())
         {
             // Create table
-            using var createConnection = await connectionFactory.CreateOpenConnectionAsync();
+            using var createConnection = await connectionFactory.CreateOpenConnectionAsync(this.TestContext.CancellationToken);
             using var createCommand = createConnection.CreateCommand();
             createCommand.CommandText = "CREATE TABLE TestTable (Id INTEGER PRIMARY KEY)";
             createCommand.ExecuteNonQuery();

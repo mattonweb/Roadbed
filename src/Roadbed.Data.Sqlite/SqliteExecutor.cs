@@ -22,13 +22,15 @@ public static class SqliteExecutor
     /// <param name="request">The request containing query, parameters, and retry configuration.</param>
     /// <param name="connectionFactory">Connection factory for database access.</param>
     /// <param name="logger">Logger for diagnostics and retry tracking. Defaults to NullLogger if not provided.</param>
+    /// <param name="cancellationToken">Token to notify when an operation should be canceled.</param>
     /// <returns>The number of rows affected.</returns>
     /// <exception cref="ArgumentNullException">Thrown if request or connectionFactory is null.</exception>
     /// <exception cref="InvalidOperationException">Thrown if all retries are exhausted.</exception>
     public static async Task<int> ExecuteAsync(
         DataExecutorRequest request,
         IDataConnectionFactory connectionFactory,
-        ILogger? logger = null)
+        ILogger? logger = null,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(connectionFactory);
@@ -43,7 +45,7 @@ public static class SqliteExecutor
         if (!request.RetriesEnabled)
         {
             // No retry logic - execute once
-            using (var dbConnection = await connectionFactory.CreateOpenConnectionAsync().ConfigureAwait(false))
+            using (var dbConnection = await connectionFactory.CreateOpenConnectionAsync(cancellationToken).ConfigureAwait(false))
             {
                 return await dbConnection
                     .ExecuteAsync(request.Query, request.Parameters)
@@ -52,7 +54,7 @@ public static class SqliteExecutor
         }
 
         // Execute with retry logic - pass logger
-        return await ExecuteWithRetryAsync(request, connectionFactory, logger).ConfigureAwait(false);
+        return await ExecuteWithRetryAsync(request, connectionFactory, logger, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -62,13 +64,15 @@ public static class SqliteExecutor
     /// <param name="request">The request containing query, parameters, and retry configuration.</param>
     /// <param name="connectionFactory">Connection factory for database access.</param>
     /// <param name="logger">Logger for diagnostics and retry tracking. Defaults to NullLogger if not provided.</param>
+    /// <param name="cancellationToken">Token to notify when an operation should be canceled.</param>
     /// <returns>A collection of results.</returns>
     /// <exception cref="ArgumentNullException">Thrown if request or connectionFactory is null.</exception>
     /// <exception cref="InvalidOperationException">Thrown if all retries are exhausted.</exception>
     public static async Task<IEnumerable<T>> QueryAsync<T>(
         DataExecutorRequest request,
         IDataConnectionFactory connectionFactory,
-        ILogger? logger = null)
+        ILogger? logger = null,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(connectionFactory);
@@ -83,7 +87,7 @@ public static class SqliteExecutor
         if (!request.RetriesEnabled)
         {
             // No retry logic - execute once
-            using (var dbConnection = await connectionFactory.CreateOpenConnectionAsync().ConfigureAwait(false))
+            using (var dbConnection = await connectionFactory.CreateOpenConnectionAsync(cancellationToken).ConfigureAwait(false))
             {
                 return await dbConnection
                     .QueryAsync<T>(request.Query, request.Parameters)
@@ -92,7 +96,7 @@ public static class SqliteExecutor
         }
 
         // Execute with retry logic - pass logger
-        return await QueryWithRetryAsync<T>(request, connectionFactory, logger).ConfigureAwait(false);
+        return await QueryWithRetryAsync<T>(request, connectionFactory, logger, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -102,13 +106,15 @@ public static class SqliteExecutor
     /// <param name="request">The request containing query, parameters, and retry configuration.</param>
     /// <param name="connectionFactory">Connection factory for database access.</param>
     /// <param name="logger">Logger for diagnostics and retry tracking. Defaults to NullLogger if not provided.</param>
+    /// <param name="cancellationToken">Token to notify when an operation should be canceled.</param>
     /// <returns>A single result or default if not found.</returns>
     /// <exception cref="ArgumentNullException">Thrown if request or connectionFactory is null.</exception>
     /// <exception cref="InvalidOperationException">Thrown if all retries are exhausted.</exception>
     public static async Task<T?> QuerySingleOrDefaultAsync<T>(
         DataExecutorRequest request,
         IDataConnectionFactory connectionFactory,
-        ILogger? logger = null)
+        ILogger? logger = null,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(connectionFactory);
@@ -123,7 +129,7 @@ public static class SqliteExecutor
         if (!request.RetriesEnabled)
         {
             // No retry logic - execute once
-            using (var dbConnection = await connectionFactory.CreateOpenConnectionAsync().ConfigureAwait(false))
+            using (var dbConnection = await connectionFactory.CreateOpenConnectionAsync(cancellationToken).ConfigureAwait(false))
             {
                 return await dbConnection
                     .QuerySingleOrDefaultAsync<T>(request.Query, request.Parameters)
@@ -132,7 +138,7 @@ public static class SqliteExecutor
         }
 
         // Execute with retry logic - pass logger
-        return await QuerySingleOrDefaultWithRetryAsync<T>(request, connectionFactory, logger).ConfigureAwait(false);
+        return await QuerySingleOrDefaultWithRetryAsync<T>(request, connectionFactory, logger, cancellationToken).ConfigureAwait(false);
     }
 
     #endregion Public Methods
@@ -149,7 +155,8 @@ public static class SqliteExecutor
     private static async Task<int> ExecuteWithRetryAsync(
         DataExecutorRequest request,
         IDataConnectionFactory connectionFactory,
-        ILogger logger)
+        ILogger logger,
+        CancellationToken cancellationToken)
     {
         int attempt = 0;
         Exception? lastException = null;
@@ -159,7 +166,7 @@ public static class SqliteExecutor
             try
             {
                 using (var dbConnection = await connectionFactory
-                    .CreateOpenConnectionAsync()
+                    .CreateOpenConnectionAsync(cancellationToken)
                     .ConfigureAwait(false))
                 {
                     int result = await dbConnection
@@ -197,7 +204,7 @@ public static class SqliteExecutor
                     delay.TotalMilliseconds);
                 }
 
-                await Task.Delay(delay).ConfigureAwait(false);
+                await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
             }
         }
 
@@ -224,7 +231,8 @@ public static class SqliteExecutor
     private static async Task<IEnumerable<T>> QueryWithRetryAsync<T>(
         DataExecutorRequest request,
         IDataConnectionFactory connectionFactory,
-        ILogger logger)
+        ILogger logger,
+        CancellationToken cancellationToken)
     {
         int attempt = 0;
         Exception? lastException = null;
@@ -234,7 +242,7 @@ public static class SqliteExecutor
             try
             {
                 using (var dbConnection = await connectionFactory
-                    .CreateOpenConnectionAsync()
+                    .CreateOpenConnectionAsync(cancellationToken)
                     .ConfigureAwait(false))
                 {
                     var result = await dbConnection
@@ -272,7 +280,7 @@ public static class SqliteExecutor
                     delay.TotalMilliseconds);
                 }
 
-                await Task.Delay(delay).ConfigureAwait(false);
+                await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
             }
         }
 
@@ -299,7 +307,8 @@ public static class SqliteExecutor
     private static async Task<T?> QuerySingleOrDefaultWithRetryAsync<T>(
         DataExecutorRequest request,
         IDataConnectionFactory connectionFactory,
-        ILogger logger)
+        ILogger logger,
+        CancellationToken cancellationToken)
     {
         int attempt = 0;
         Exception? lastException = null;
@@ -309,7 +318,7 @@ public static class SqliteExecutor
             try
             {
                 using (var dbConnection = await connectionFactory
-                    .CreateOpenConnectionAsync()
+                    .CreateOpenConnectionAsync(cancellationToken)
                     .ConfigureAwait(false))
                 {
                     var result = await dbConnection
@@ -347,7 +356,7 @@ public static class SqliteExecutor
                     delay.TotalMilliseconds);
                 }
 
-                await Task.Delay(delay).ConfigureAwait(false);
+                await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
             }
         }
 
