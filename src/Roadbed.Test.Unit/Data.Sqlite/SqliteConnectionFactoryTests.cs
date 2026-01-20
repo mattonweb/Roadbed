@@ -14,6 +14,11 @@ using Roadbed.Data.Sqlite;
 [TestClass]
 public class SqliteConnectionFactoryTests
 {
+    /// <summary>
+    /// Gets or sets object used to store information that is provided to unit tests.
+    /// </summary>
+    public TestContext TestContext { get; set; }
+
     #region Public Methods
 
     #region Constructor Tests
@@ -406,7 +411,7 @@ public class SqliteConnectionFactoryTests
         var instance = new SqliteConnectionFactory(connectionString);
 
         // Act (When)
-        IDbConnection connection = await instance.CreateOpenConnectionAsync();
+        IDbConnection connection = await instance.CreateOpenConnectionAsync(this.TestContext.CancellationToken);
 
         try
         {
@@ -441,7 +446,7 @@ public class SqliteConnectionFactoryTests
         var instance = new SqliteConnectionFactory(connectionString);
 
         // Act (When)
-        IDbConnection connection = await instance.CreateOpenConnectionAsync();
+        IDbConnection connection = await instance.CreateOpenConnectionAsync(this.TestContext.CancellationToken);
 
         try
         {
@@ -473,7 +478,7 @@ public class SqliteConnectionFactoryTests
         var instance = new SqliteConnectionFactory(connectionString);
 
         // Act (When)
-        IDbConnection connection = await instance.CreateOpenConnectionAsync();
+        IDbConnection connection = await instance.CreateOpenConnectionAsync(this.TestContext.CancellationToken);
 
         try
         {
@@ -519,8 +524,8 @@ public class SqliteConnectionFactoryTests
         var instance = new SqliteConnectionFactory(connectionString);
 
         // Act (When)
-        IDbConnection connection1 = await instance.CreateOpenConnectionAsync();
-        IDbConnection connection2 = await instance.CreateOpenConnectionAsync();
+        IDbConnection connection1 = await instance.CreateOpenConnectionAsync(this.TestContext.CancellationToken);
+        IDbConnection connection2 = await instance.CreateOpenConnectionAsync(this.TestContext.CancellationToken);
 
         try
         {
@@ -563,7 +568,7 @@ public class SqliteConnectionFactoryTests
         // Act (When)
         try
         {
-            IDbConnection connection = await instance.CreateOpenConnectionAsync();
+            IDbConnection connection = await instance.CreateOpenConnectionAsync(this.TestContext.CancellationToken);
             connection?.Dispose();
         }
         catch (SqliteException)
@@ -655,7 +660,7 @@ public class SqliteConnectionFactoryTests
         IDataConnectionFactory instance = new SqliteConnectionFactory(connectionString);
 
         // Act (When)
-        IDbConnection connection = await instance.CreateOpenConnectionAsync();
+        IDbConnection connection = await instance.CreateOpenConnectionAsync(this.TestContext.CancellationToken);
 
         try
         {

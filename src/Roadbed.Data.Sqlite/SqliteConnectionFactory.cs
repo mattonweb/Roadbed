@@ -53,11 +53,11 @@ public class SqliteConnectionFactory : IDataConnectionFactory
     /// after use, typically with a using statement or using declaration.
     /// </remarks>
     /// <exception cref="SqliteException">Thrown when the connection cannot be opened.</exception>
-    public async Task<IDbConnection> CreateOpenConnectionAsync()
+    public async Task<IDbConnection> CreateOpenConnectionAsync(CancellationToken cancellationToken)
     {
         var connection = new SqliteConnection(this.Connecion.ConnectionString);
 
-        await connection.OpenAsync();
+        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
 
         return connection;
     }

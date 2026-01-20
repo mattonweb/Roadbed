@@ -17,6 +17,11 @@ using Roadbed.Data.Sqlite;
 [TestClass]
 public class SqliteExecutorTests
 {
+    /// <summary>
+    /// Gets or sets object used to store information that is provided to unit tests.
+    /// </summary>
+    public TestContext TestContext { get; set; }
+
     #region Public Methods
 
     #region ExecuteAsync Tests
@@ -112,7 +117,7 @@ public class SqliteExecutorTests
         int result = 0;
         var connectionFactory = this.CreateConnectionFactory();
 
-        using var connection = (SqliteConnection)await connectionFactory.CreateOpenConnectionAsync();
+        using var connection = (SqliteConnection)await connectionFactory.CreateOpenConnectionAsync(this.TestContext.CancellationToken);
         using (var keepAlive = connection.KeepAlive())
         {
             // Create table first
@@ -286,7 +291,7 @@ public class SqliteExecutorTests
         // Arrange (Given)
         var connectionFactory = this.CreateConnectionFactory();
 
-        using var connection = (SqliteConnection)await connectionFactory.CreateOpenConnectionAsync();
+        using var connection = (SqliteConnection)await connectionFactory.CreateOpenConnectionAsync(this.TestContext.CancellationToken);
         using (var keepAlive = connection.KeepAlive())
         {
             // Create and populate table
@@ -333,7 +338,7 @@ public class SqliteExecutorTests
         // Arrange (Given)
         var connectionFactory = this.CreateConnectionFactory();
 
-        using var connection = (SqliteConnection)await connectionFactory.CreateOpenConnectionAsync();
+        using var connection = (SqliteConnection)await connectionFactory.CreateOpenConnectionAsync(this.TestContext.CancellationToken);
         using (var keepAlive = connection.KeepAlive())
         {
             // Create and populate table
@@ -385,7 +390,7 @@ public class SqliteExecutorTests
         // Arrange (Given)
         var connectionFactory = this.CreateConnectionFactory();
 
-        using var connection = (SqliteConnection)await connectionFactory.CreateOpenConnectionAsync();
+        using var connection = (SqliteConnection)await connectionFactory.CreateOpenConnectionAsync(this.TestContext.CancellationToken);
         using (var keepAlive = connection.KeepAlive())
         {
             // Create table without data
@@ -426,7 +431,7 @@ public class SqliteExecutorTests
         var connectionFactory = this.CreateConnectionFactory();
         var logger = new TestLogger();
 
-        using var connection = (SqliteConnection)await connectionFactory.CreateOpenConnectionAsync();
+        using var connection = (SqliteConnection)await connectionFactory.CreateOpenConnectionAsync(this.TestContext.CancellationToken);
         using (var keepAlive = connection.KeepAlive())
         {
             // Create and populate table
@@ -525,7 +530,7 @@ public class SqliteExecutorTests
         // Arrange (Given)
         var connectionFactory = this.CreateConnectionFactory();
 
-        using var connection = (SqliteConnection)await connectionFactory.CreateOpenConnectionAsync();
+        using var connection = (SqliteConnection)await connectionFactory.CreateOpenConnectionAsync(this.TestContext.CancellationToken);
         using (var keepAlive = connection.KeepAlive())
         {
             // Create and populate table
@@ -576,7 +581,7 @@ public class SqliteExecutorTests
         // Arrange (Given)
         var connectionFactory = this.CreateConnectionFactory();
 
-        using var connection = (SqliteConnection)await connectionFactory.CreateOpenConnectionAsync();
+        using var connection = (SqliteConnection)await connectionFactory.CreateOpenConnectionAsync(this.TestContext.CancellationToken);
         using (var keepAlive = connection.KeepAlive())
         {
             // Create table without data
@@ -612,7 +617,7 @@ public class SqliteExecutorTests
         // Arrange (Given)
         var connectionFactory = this.CreateConnectionFactory();
 
-        using var connection = (SqliteConnection)await connectionFactory.CreateOpenConnectionAsync();
+        using var connection = (SqliteConnection)await connectionFactory.CreateOpenConnectionAsync(this.TestContext.CancellationToken);
         using (var keepAlive = connection.KeepAlive())
         {
             // Create and populate table
@@ -661,7 +666,7 @@ public class SqliteExecutorTests
         var connectionFactory = this.CreateConnectionFactory();
         var logger = new TestLogger();
 
-        using var connection = (SqliteConnection)await connectionFactory.CreateOpenConnectionAsync();
+        using var connection = (SqliteConnection)await connectionFactory.CreateOpenConnectionAsync(this.TestContext.CancellationToken);
         using (var keepAlive = connection.KeepAlive())
         {
             // Create and populate table
@@ -713,7 +718,7 @@ public class SqliteExecutorTests
         var connectionFactory = this.CreateConnectionFactory();
         var logger = new TestLogger();
 
-        using var connection = (SqliteConnection)await connectionFactory.CreateOpenConnectionAsync();
+        using var connection = (SqliteConnection)await connectionFactory.CreateOpenConnectionAsync(this.TestContext.CancellationToken);
         using (var keepAlive = connection.KeepAlive())
         {
             // Create table
@@ -754,7 +759,7 @@ public class SqliteExecutorTests
         int result = 0;
         var connectionFactory = this.CreateConnectionFactory();
 
-        using var connection = (SqliteConnection)await connectionFactory.CreateOpenConnectionAsync();
+        using var connection = (SqliteConnection)await connectionFactory.CreateOpenConnectionAsync(this.TestContext.CancellationToken);
         using (var keepAlive = connection.KeepAlive())
         {
             // Create table

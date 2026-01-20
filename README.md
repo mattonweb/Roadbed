@@ -3,9 +3,7 @@
   <br />
   Roadbed
   <br />
-
 </h1>
-<hr>
 
 This is a collection of utilities, helpers, and **infrastructure** to support the creation of tools for the core **Domain layer** (business logic).
 
