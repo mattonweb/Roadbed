@@ -1,4 +1,7 @@
-﻿namespace Roadbed.Crud.Repositories;
+﻿/*
+ * The namespace Roadbed.Crud.Repositories was removed on purpose and replaced with Roadbed.Crud so that no additional using statements are required.
+ */
+namespace Roadbed.Crud;
 
 using Roadbed.Crud.Entities.Operations;
 

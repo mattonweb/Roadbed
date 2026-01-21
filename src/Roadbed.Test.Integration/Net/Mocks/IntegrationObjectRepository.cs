@@ -6,8 +6,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-using Roadbed.Crud.Repositories;
 using Roadbed.Net;
+using Roadbed.Crud;
 
 /// <summary>
 /// CRUD repository for IntegrationObject entity.
