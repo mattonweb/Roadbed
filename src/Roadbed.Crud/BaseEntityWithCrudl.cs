@@ -7,7 +7,6 @@ namespace Roadbed.Crud;
 using System.Text;
 using Microsoft.Extensions.Logging;
 using Roadbed;
-using Roadbed.Crud.Repositories;
 
 /// <summary>
 /// Base Entity for the Create, Retrieve, Update, Delete, and List operations.

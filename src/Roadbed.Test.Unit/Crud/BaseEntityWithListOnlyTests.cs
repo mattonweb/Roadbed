@@ -1,6 +1,6 @@
 ﻿namespace Roadbed.Test.Unit.Crud;
 
-using Roadbed.Crud.Repositories;
+using Roadbed.Crud;
 using Roadbed.Test.Unit.Crud.Mocks;
 
 /// <summary>

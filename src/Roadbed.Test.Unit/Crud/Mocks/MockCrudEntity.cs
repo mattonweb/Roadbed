@@ -2,7 +2,6 @@
 
 using Microsoft.Extensions.Logging;
 using Roadbed.Crud;
-using Roadbed.Crud.Repositories;
 
 /// <summary>
 /// Mock entity for testing BaseEntityWithCrudl.

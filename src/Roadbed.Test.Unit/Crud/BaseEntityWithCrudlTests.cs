@@ -4,7 +4,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Roadbed.Crud.Repositories;
+using Roadbed.Crud;
 using Roadbed.Test.Unit.Crud.Mocks;
 
 /// <summary>

@@ -1,7 +1,7 @@
 ﻿namespace Roadbed.Test.Unit.Crud.Mocks;
 
 using System.Collections.Generic;
-using Roadbed.Crud.Repositories;
+using Roadbed.Crud;
 
 /// <summary>
 /// Mock repository for testing.
