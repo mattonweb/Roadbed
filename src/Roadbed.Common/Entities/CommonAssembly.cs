@@ -33,16 +33,15 @@ public static class CommonAssembly
 
         // Get All Embedded Resource Names
         string[] resourceNames = assembly.GetManifestResourceNames();
-
         string result = string.Empty;
 
         // Loop through each resource
         foreach (string name in resourceNames)
         {
-            // Ensure the name being passed in matches of resource being passed in
-            if (name == fileAndExtensionWithFullNamespace)
+            // Ensure the name being passed in matches of resource being passed in (case-insensitive)
+            if (name.Equals(fileAndExtensionWithFullNamespace, StringComparison.OrdinalIgnoreCase))
             {
-                using (Stream? stream = assembly.GetManifestResourceStream(fileAndExtensionWithFullNamespace))
+                using (Stream? stream = assembly.GetManifestResourceStream(name)) // Use 'name' instead
                 {
                     if (stream != null)
                     {
