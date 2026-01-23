@@ -3,7 +3,6 @@
 using System.Net;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// Installer for Net HTTP Client services.
@@ -29,17 +28,11 @@ public class InstallNetHttpClient : IServiceCollectionInstaller
                 AutomaticDecompression = DecompressionMethods.Deflate | DecompressionMethods.GZip,
             });
 
-        // Build the service provider
-        IServiceProvider serviceProvider = services.BuildServiceProvider();
-
-        // Manually get the ILoggerFactory instance
-        ILoggerFactory loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
-
-        // Register the ILoggerFactory instance in Dependency Injection
-        services.AddSingleton<ILoggerFactory>(loggerFactory);
-
-        // Retain Serivce Collection in custom ServiceLocator
-        ServiceLocator.SetLocatorProvider(serviceProvider);
+        // Capture point-in-time snapshot in ServiceLocator. This allows the class library
+        // to be self-contained (as a NuGet package) without depending on the consuming application
+        // to do anything extra besides registering the middleware using one of the methods in
+        // the Roadbed.Common.ServiceCollectionExtensions class.
+        ServiceLocator.SetLocatorProvider(services.BuildServiceProvider());
     }
 
     #endregion Public Methods

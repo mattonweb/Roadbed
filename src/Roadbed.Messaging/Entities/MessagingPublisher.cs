@@ -4,6 +4,7 @@
 
 namespace Roadbed.Messaging;
 
+using Newtonsoft.Json;
 using Roadbed.Common;
 
 /// <summary>
@@ -52,11 +53,13 @@ public class MessagingPublisher
     /// <summary>
     /// Gets or sets the attribute value.
     /// </summary>
+    [JsonProperty("publisher_identifier", NullValueHandling = NullValueHandling.Ignore)]
     public string Identifier { get; set; }
 
     /// <summary>
     /// Gets or sets the attribute key.
     /// </summary>
+    [JsonProperty("publisher_name", NullValueHandling = NullValueHandling.Ignore)]
     public CommonBusinessKey? Name { get; set; }
 
     #endregion Public Properties
