@@ -25,7 +25,10 @@ public class InstallExtensionsLogging : IServiceCollectionInstaller
         // Register the ILoggerFactory instance in Dependency Injection
         services.AddSingleton<ILoggerFactory>(loggerFactory);
 
-        // Retain Serivce Collection in custom ServiceLocator
+        // Capture point-in-time snapshot in ServiceLocator. This allows the class library
+        // to be self-contained (as a NuGet package) without depending on the consuming application
+        // to do anything extra besides registering the middleware using one of the methods in
+        // the Roadbed.Common.ServiceCollectionExtensions class.
         ServiceLocator.SetLocatorProvider(serviceProvider);
     }
 }

@@ -89,7 +89,7 @@ public abstract class BaseMessagingMessage<T>
     /// <summary>
     /// Gets the time the message was created.
     /// </summary>
-    [JsonProperty("create_on")]
+    [JsonProperty("message_create_on")]
     public DateTimeOffset? CreatedOn
     {
         get;
@@ -109,7 +109,7 @@ public abstract class BaseMessagingMessage<T>
     /// <summary>
     /// Gets the identifier for the message.
     /// </summary>
-    [JsonProperty("identifier")]
+    [JsonProperty("message_identifier")]
     public string? Identifier
     {
         get;
@@ -119,7 +119,7 @@ public abstract class BaseMessagingMessage<T>
     /// <summary>
     /// Gets or sets the type of message.
     /// </summary>
-    [JsonProperty("type_codename", NullValueHandling = NullValueHandling.Ignore)]
+    [JsonProperty("message_type", NullValueHandling = NullValueHandling.Ignore)]
     public string? MessageTypeCodename
     {
         get;
