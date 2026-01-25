@@ -1,5 +1,5 @@
 ﻿/*
- * The namespace Roadbed.Scheduling.Entities was removed on purpose and replaced with Roadbed.Crud so that no additional using statements are required.
+ * The namespace Roadbed.Scheduling.Dtos was removed on purpose and replaced with Roadbed.Crud so that no additional using statements are required.
  */
 namespace Roadbed.Scheduling;
 

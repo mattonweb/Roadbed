@@ -1,6 +1,6 @@
 # Roadbed.Scheduling
 
-This package provides job scheduling capabilities using Quartz.NET with automatic job discovery and registration.
+This package provides job scheduling capabilities using Quartz.NET with automatic job discovery, registration, and built-in metrics support.
 
 ## Quartz.NET
 
@@ -40,8 +40,163 @@ app.Run();
 5. ✅ Registers jobs with dependency injection
 6. ✅ Configures Quartz.NET with all discovered jobs
 7. ✅ Sets up hosted service to run jobs in background
+8. ✅ Configures metrics listener for job execution tracking
 
 **Zero manual configuration required!** Your jobs are automatically discovered and scheduled.
+
+---
+
+## Metrics and Monitoring
+
+`Roadbed.Scheduling` includes built-in metrics support to track job execution. By default, metrics are **optional** with zero overhead when not configured.
+
+### Default Behavior (No Metrics)
+
+Without any configuration, jobs run normally with zero metrics overhead:
+```csharp
+// No additional configuration needed - metrics are optional
+builder.Services.InstallModulesInAppDomain(builder.Configuration);
+```
+
+### Built-in Logging Metrics
+
+To log job execution metrics to your application logs, register the `LoggingMetricsAdapter`:
+```csharp
+// Program.cs
+builder.Services.AddSingleton<ISchedulingMetrics, LoggingMetricsAdapter>();
+builder.Services.InstallModulesInAppDomain(builder.Configuration);
+```
+
+**Log Output Example:**
+```
+info: Job MonthlyBilling (Default) started - FireInstanceId: abc123
+info: Job MonthlyBilling (Default) completed in 1234.5ms - Processed 45 customers
+```
+
+### Job Result Messages
+
+Jobs can provide execution summaries by setting `Context.Result`:
+```csharp
+public override async Task ExecuteAsync(CancellationToken cancellationToken)
+{
+    this.LogInformation("Starting monthly billing");
+    
+    var customers = await this._billingService.GetActiveCustomersAsync(cancellationToken);
+    int processedCount = 0;
+    decimal totalRevenue = 0m;
+    
+    foreach (var customer in customers)
+    {
+        var invoice = await this._billingService.ProcessBillingAsync(customer, cancellationToken);
+        processedCount++;
+        totalRevenue += invoice.Amount;
+    }
+    
+    // Set result message - captured by metrics
+    this.Context.Result = $"Processed {processedCount}/{customers.Count} customers, total revenue: ${totalRevenue:N2}";
+    
+    this.LogInformation("Monthly billing completed");
+}
+```
+
+The result message appears in metrics logs:
+```
+info: Job MonthlyBilling (Default) completed in 2341.2ms - Processed 45/45 customers, total revenue: $12,345.67
+```
+
+### Custom Metrics Adapters
+
+Implement `ISchedulingMetrics` to send metrics to any monitoring system:
+```csharp
+public class MyCustomMetrics : ISchedulingMetrics
+{
+    public void JobStarted(JobExecutionInfo info)
+    {
+        // Send to your monitoring system
+    }
+
+    public void JobCompleted(JobExecutionInfo info, TimeSpan duration)
+    {
+        // Record success metrics
+        // info.ResultMessage contains job's result (if set)
+    }
+
+    public void JobFailed(JobExecutionInfo info, Exception exception, TimeSpan duration)
+    {
+        // Record failure metrics
+    }
+
+    public void JobMisfired(JobExecutionInfo info)
+    {
+        // Note: Currently not captured (requires TriggerListener)
+        // Reserved for future implementation
+    }
+}
+
+// Register your custom metrics
+builder.Services.AddSingleton<ISchedulingMetrics, MyCustomMetrics>();
+```
+
+### ISchedulingMetrics Interface
+
+The metrics interface provides four lifecycle events:
+```csharp
+public interface ISchedulingMetrics
+{
+    void JobStarted(JobExecutionInfo info);
+    void JobCompleted(JobExecutionInfo info, TimeSpan duration);
+    void JobFailed(JobExecutionInfo info, Exception exception, TimeSpan duration);
+    void JobMisfired(JobExecutionInfo info);
+}
+```
+
+**JobExecutionInfo Properties:**
+- `JobName`, `JobGroup` - Job identification
+- `TriggerName`, `TriggerGroup` - Trigger identification
+- `FireInstanceId` - Unique execution ID
+- `FireTimeUtc` - Actual execution time
+- `ScheduledFireTimeUtc` - Scheduled execution time
+- `PreviousFireTimeUtc`, `NextFireTimeUtc` - Previous/next runs
+- `ResultMessage` - Optional result set via `Context.Result`
+
+### Metrics Best Practices
+
+**1. Keep metrics operations fast** - Methods are called synchronously
+```csharp
+public void JobCompleted(JobExecutionInfo info, TimeSpan duration)
+{
+    // ✅ Good - Queue for async processing
+    this._metricsQueue.Enqueue(new MetricEvent(info, duration));
+    
+    // ❌ Avoid - Slow synchronous operations
+    // await this._database.SaveMetricsAsync(info);
+}
+```
+
+**2. Never throw exceptions** - Metrics failures are logged as warnings and don't break jobs
+```csharp
+public void JobCompleted(JobExecutionInfo info, TimeSpan duration)
+{
+    try
+    {
+        this._monitoring.RecordSuccess(info.JobName, duration);
+    }
+    catch (Exception ex)
+    {
+        this._logger.LogWarning(ex, "Failed to record metrics");
+        // Don't throw - metrics failures should not break jobs
+    }
+}
+```
+
+**3. Use structured logging** - Better for log aggregation
+```csharp
+this._logger.LogInformation(
+    "Job {JobName} completed in {DurationMs}ms - {Result}",
+    info.JobName,
+    duration.TotalMilliseconds,
+    info.ResultMessage);
+```
 
 ---
 
@@ -108,7 +263,11 @@ public class FooJob : BaseSchedulingJob<FooJob>
 
         try
         {
-            await this._fooService.ProcessFooItemsAsync(cancellationToken);
+            int processedCount = await this._fooService.ProcessFooItemsAsync(cancellationToken);
+            
+            // Set result message for metrics
+            this.Context.Result = $"Processed {processedCount} items";
+            
             this.LogInformation("Foo processing completed successfully");
         }
         catch (Exception ex)
@@ -218,7 +377,11 @@ public class FooJob : BaseSchedulingJob<FooJob>
 
         try
         {
-            await this._fooService.ProcessFooItemsAsync(cancellationToken);
+            int processedCount = await this._fooService.ProcessFooItemsAsync(cancellationToken);
+            
+            // Set result message for metrics
+            this.Context.Result = $"Processed {processedCount} items";
+            
             this.LogInformation("Foo processing completed successfully");
         }
         catch (Exception ex)
@@ -342,18 +505,26 @@ Both jobs help you verify that all jobs are registered and scheduled correctly.
 
 ## Complete Example
 
-Here's a complete example showing both patterns in one application:
+Here's a complete example showing metrics, result messages, and both scheduling patterns:
 ```csharp
 // Program.cs
 var builder = WebApplication.CreateBuilder(args);
+
+// Optional: Enable logging metrics
+builder.Services.AddSingleton<ISchedulingMetrics, LoggingMetricsAdapter>();
+
+// Auto-discover and register all jobs
 builder.Services.InstallModulesInAppDomain(builder.Configuration);
+
 var app = builder.Build();
 app.Run();
 ```
 ```csharp
-// HardcodedJob.cs - Simple, fixed schedule
+// DailyReportJob.cs - Simple, fixed schedule
 public class DailyReportJob : BaseSchedulingJob<DailyReportJob>
 {
+    private readonly IReportService _service;
+
     public DailyReportJob(ILogger<DailyReportJob> logger, IReportService service)
         : base(
             name: "DailyReport",
@@ -366,14 +537,18 @@ public class DailyReportJob : BaseSchedulingJob<DailyReportJob>
 
     public override async Task ExecuteAsync(CancellationToken ct)
     {
-        await this._service.GenerateReportAsync(ct);
+        var report = await this._service.GenerateReportAsync(ct);
+        this.Context.Result = $"Generated report with {report.RecordCount} records";
     }
 }
 ```
 ```csharp
-// ConfigurableJob.cs - Flexible, configuration-driven
+// DataSyncJob.cs - Flexible, configuration-driven
 public class DataSyncJob : BaseSchedulingJob<DataSyncJob>
 {
+    private readonly IConfiguration _config;
+    private readonly ISyncService _service;
+
     public DataSyncJob(ILogger<DataSyncJob> logger, IConfiguration config, ISyncService service)
         : base(logger)
     {
@@ -395,7 +570,8 @@ public class DataSyncJob : BaseSchedulingJob<DataSyncJob>
 
     public override async Task ExecuteAsync(CancellationToken ct)
     {
-        await this._service.SyncDataAsync(ct);
+        var result = await this._service.SyncDataAsync(ct);
+        this.Context.Result = $"Synced {result.RecordCount} records, {result.ErrorCount} errors";
     }
 }
 ```
@@ -411,3 +587,56 @@ public class DataSyncJob : BaseSchedulingJob<DataSyncJob>
 }
 ```
 
+**Console Output with Logging Metrics:**
+```
+info: Job DailyReport (Default) started - FireInstanceId: f8c3a...
+info: Job DailyReport (Default) completed in 1523.4ms - Generated report with 1,234 records
+info: Job DataSync (Default) started - FireInstanceId: 9d2e1...
+info: Job DataSync (Default) completed in 2341.7ms - Synced 5,678 records, 0 errors
+```
+
+---
+
+## Advanced Topics
+
+### Error Handling in Jobs
+
+Exceptions thrown from `ExecuteAsync` are captured by Quartz and reported to metrics:
+```csharp
+public override async Task ExecuteAsync(CancellationToken cancellationToken)
+{
+    try
+    {
+        await this.ProcessDataAsync(cancellationToken);
+        this.Context.Result = "Success";
+    }
+    catch (Exception ex)
+    {
+        // Set partial result before throwing
+        this.Context.Result = "Failed after processing 500 records";
+        this.LogError(ex, "Job execution failed");
+        throw; // Quartz marks job as failed
+    }
+}
+```
+
+Metrics will receive the partial result message in `JobFailed`:
+```
+error: Job DataProcessing (Default) failed after 2341.2ms - Failed after processing 500 records
+```
+
+### Thread Safety
+
+- Jobs are created as **Transient** - new instance per execution
+- Multiple executions of the same job can run concurrently
+- Use `[DisallowConcurrentExecution]` attribute if needed (Quartz feature)
+
+### Metrics Thread Safety
+
+`ISchedulingMetrics` implementations must be thread-safe as they are registered as **Singleton** and may be called concurrently by multiple jobs.
+
+---
+
+## License
+
+See main Roadbed repository for license information.
