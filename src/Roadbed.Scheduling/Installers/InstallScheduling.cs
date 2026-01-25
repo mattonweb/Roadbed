@@ -1,16 +1,20 @@
 ﻿namespace Roadbed.Scheduling.Installers;
 
 using System;
-using System.Collections.Generic;
 using System.Linq;
-using System.Reflection;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Quartz;
+using Roadbed.Scheduling.Services;
 
 /// <summary>
-/// Installer for Quartz.NET Scheduling services.
+/// Configures services for the scheduling framework.
 /// </summary>
+/// <remarks>
+/// This installer automatically discovers all ISchedulingJob implementations,
+/// registers them in the DI container, configures Quartz.NET, and sets up
+/// the metrics listener for job execution tracking.
+/// </remarks>
 public class InstallScheduling : IServiceCollectionInstaller
 {
     #region Public Methods
@@ -18,7 +22,16 @@ public class InstallScheduling : IServiceCollectionInstaller
     /// <inheritdoc/>
     public void ConfigureServices(IServiceCollection services, IConfiguration configuration)
     {
-        // Discover and register all ISchedulingJob implementations from all loaded assemblies
+        // Register default no-op metrics if none provided by consumer
+        if (!services.Any(d => d.ServiceType == typeof(ISchedulingMetrics)))
+        {
+            services.AddSingleton<ISchedulingMetrics>(NullSchedulingMetrics.Instance);
+        }
+
+        // Register metrics listener (internal, uses ISchedulingMetrics from DI)
+        services.AddSingleton<SchedulingMetricsListener>();
+
+        // Discover and register all ISchedulingJob implementations
         RegisterSchedulingJobs(services);
 
         // Configure Quartz.NET
@@ -26,6 +39,9 @@ public class InstallScheduling : IServiceCollectionInstaller
         {
             // Use in-memory job store
             q.UseInMemoryStore();
+
+            // Add metrics listener
+            q.AddJobListener<SchedulingMetricsListener>();
 
             // Configure all discovered jobs
             ConfigureQuartzJobs(q, services);
@@ -38,10 +54,7 @@ public class InstallScheduling : IServiceCollectionInstaller
             options.WaitForJobsToComplete = true;
         });
 
-        // Capture point-in-time snapshot in ServiceLocator. This allows the class library
-        // to be self-contained (as a NuGet package) without depending on the consuming application
-        // to do anything extra besides registering the middleware using one of the methods in
-        // the Roadbed.Common.ServiceCollectionExtensions class.
+        // Capture point-in-time snapshot in ServiceLocator
         ServiceLocator.SetLocatorProvider(services.BuildServiceProvider());
     }
 
@@ -50,18 +63,16 @@ public class InstallScheduling : IServiceCollectionInstaller
     #region Private Methods
 
     /// <summary>
-    /// Applies misfire strategy to cron schedule builder.
+    /// Applies cron misfire strategy to schedule builder.
     /// </summary>
     /// <param name="builder">Cron schedule builder.</param>
     /// <param name="strategy">Misfire strategy to apply.</param>
-    private static void ApplyMisfireStrategy(CronScheduleBuilder builder, SchedulingMisfireStrategy strategy)
+    private static void ApplyCronMisfireStrategy(
+        CronScheduleBuilder builder,
+        SchedulingMisfireStrategy strategy)
     {
         switch (strategy)
         {
-            case SchedulingMisfireStrategy.Default:
-                // Quartz uses smart defaults
-                break;
-
             case SchedulingMisfireStrategy.DoNothing:
                 builder.WithMisfireHandlingInstructionDoNothing();
                 break;
@@ -77,18 +88,16 @@ public class InstallScheduling : IServiceCollectionInstaller
     }
 
     /// <summary>
-    /// Applies misfire strategy to simple schedule builder.
+    /// Applies simple misfire strategy to schedule builder.
     /// </summary>
     /// <param name="builder">Simple schedule builder.</param>
     /// <param name="strategy">Misfire strategy to apply.</param>
-    private static void ApplySimpleMisfireStrategy(SimpleScheduleBuilder builder, SchedulingMisfireStrategy strategy)
+    private static void ApplySimpleMisfireStrategy(
+        SimpleScheduleBuilder builder,
+        SchedulingMisfireStrategy strategy)
     {
         switch (strategy)
         {
-            case SchedulingMisfireStrategy.Default:
-                // Quartz uses smart defaults
-                break;
-
             case SchedulingMisfireStrategy.FireNow:
                 builder.WithMisfireHandlingInstructionFireNow();
                 break;
@@ -116,161 +125,128 @@ public class InstallScheduling : IServiceCollectionInstaller
     }
 
     /// <summary>
-    /// Configures all discovered jobs in Quartz.
+    /// Configures Quartz jobs from discovered ISchedulingJob implementations.
     /// </summary>
-    /// <param name="configurator">Quartz configurator.</param>
-    /// <param name="services">Service collection to build service provider from.</param>
-    private static void ConfigureQuartzJobs(IServiceCollectionQuartzConfigurator configurator, IServiceCollection services)
+    /// <param name="configurator">Quartz service collection configurator.</param>
+    /// <param name="services">Service collection for resolving job instances.</param>
+    private static void ConfigureQuartzJobs(
+        IServiceCollectionQuartzConfigurator configurator,
+        IServiceCollection services)
     {
-        // Build a temporary service provider to get job instances for configuration
-        var serviceProvider = services.BuildServiceProvider();
-        var jobs = serviceProvider.GetServices<ISchedulingJob>();
+        // Get all registered ISchedulingJob types
+        var jobTypes = services
+            .Where(d => d.ServiceType == typeof(ISchedulingJob))
+            .Select(d => d.ImplementationType)
+            .Where(t => t != null)
+            .Distinct();
 
-        foreach (var job in jobs)
-        {
-            var jobType = job.GetType();
-            var jobKey = new JobKey(job.Name, job.Schedule.GroupName);
-
-            // Add the job to Quartz
-            configurator.AddJob(jobType, jobKey, j => j
-                .WithDescription(job.Description));
-
-            // Create trigger based on schedule type
-            configurator.AddTrigger(t => ConfigureTrigger(t, jobKey, job.Schedule));
-        }
-    }
-
-    /// <summary>
-    /// Configures a trigger based on the schedule configuration.
-    /// </summary>
-    /// <param name="trigger">Trigger configurator.</param>
-    /// <param name="jobKey">Job key for the trigger.</param>
-    /// <param name="schedule">Schedule configuration.</param>
-    private static void ConfigureTrigger(
-        ITriggerConfigurator trigger,
-        JobKey jobKey,
-        SchedulingSchedule schedule)
-    {
-        trigger.ForJob(jobKey)
-            .WithIdentity($"{jobKey.Name}-trigger", jobKey.Group)
-            .WithPriority((int)schedule.Priority);
-
-        switch (schedule.ScheduleType)
-        {
-            case SchedulingScheduleType.Cron:
-                trigger.WithCronSchedule(schedule.CronExpression!, b =>
-                {
-                    b.InTimeZone(schedule.TimeZone);
-
-                    if (schedule.MisfireHandlingEnabled)
-                    {
-                        ApplyMisfireStrategy(b, schedule.MisfireStrategy);
-                    }
-                    else
-                    {
-                        b.WithMisfireHandlingInstructionDoNothing();
-                    }
-                });
-                break;
-
-            case SchedulingScheduleType.SimpleInterval:
-                trigger.StartAt(DateTimeOffset.UtcNow.Add(schedule.StartDelay!.Value))
-                    .WithSimpleSchedule(b =>
-                    {
-                        b.WithInterval(schedule.Interval!.Value)
-                            .RepeatForever();
-
-                        if (schedule.MaxExecutionCount.HasValue)
-                        {
-                            b.WithRepeatCount(schedule.MaxExecutionCount.Value - 1); // -1 because first execution doesn't count as repeat
-                        }
-
-                        if (schedule.MisfireHandlingEnabled)
-                        {
-                            ApplySimpleMisfireStrategy(b, schedule.MisfireStrategy);
-                        }
-                        else
-                        {
-                            b.WithMisfireHandlingInstructionFireNow();
-                        }
-                    });
-                break;
-
-            case SchedulingScheduleType.SpecificTimeOnce:
-                trigger.StartAt(new DateTimeOffset(schedule.StartAt!.Value, schedule.TimeZone.GetUtcOffset(schedule.StartAt.Value)));
-                break;
-
-            case SchedulingScheduleType.SpecificTimeWithInterval:
-                trigger.StartAt(new DateTimeOffset(schedule.StartAt!.Value, schedule.TimeZone.GetUtcOffset(schedule.StartAt.Value)))
-                    .WithSimpleSchedule(b =>
-                    {
-                        b.WithInterval(schedule.Interval!.Value)
-                            .RepeatForever();
-
-                        if (schedule.MaxExecutionCount.HasValue)
-                        {
-                            b.WithRepeatCount(schedule.MaxExecutionCount.Value - 1);
-                        }
-
-                        if (schedule.MisfireHandlingEnabled)
-                        {
-                            ApplySimpleMisfireStrategy(b, schedule.MisfireStrategy);
-                        }
-                        else
-                        {
-                            b.WithMisfireHandlingInstructionFireNow();
-                        }
-                    });
-                break;
-        }
-    }
-
-    /// <summary>
-    /// Discovers and registers all ISchedulingJob implementations across all loaded assemblies.
-    /// </summary>
-    /// <param name="services">Service collection to register jobs with.</param>
-    private static void RegisterSchedulingJobs(IServiceCollection services)
-    {
-        var visited = new HashSet<string>();
-        var jobTypes = new List<Type>();
-
-        // Get all loaded assemblies, excluding system/Microsoft assemblies
-        var loadedAssemblies = AppDomain.CurrentDomain.GetAssemblies()
-            .Where(a => !string.IsNullOrEmpty(a.FullName) &&
-                        !a.FullName.StartsWith("System.") &&
-                        !a.FullName.StartsWith("Microsoft."));
-
-        foreach (var assembly in loadedAssemblies)
-        {
-            if (string.IsNullOrEmpty(assembly.FullName) || visited.Contains(assembly.FullName))
-            {
-                continue;
-            }
-
-            visited.Add(assembly.FullName);
-
-            try
-            {
-                var assemblyJobTypes = assembly.GetTypes()
-                    .Where(t => typeof(ISchedulingJob).IsAssignableFrom(t))
-                    .Where(t => !t.IsInterface && !t.IsAbstract)
-                    .Where(t => t.GetConstructors().Any(c => c.GetParameters().Length > 0)); // Has DI constructor
-
-                jobTypes.AddRange(assemblyJobTypes);
-            }
-            catch (ReflectionTypeLoadException)
-            {
-                // Skip assemblies that can't be loaded
-            }
-        }
-
-        // Register all discovered job types
         foreach (var jobType in jobTypes)
         {
-            // Register the job as itself (for DI injection)
+            // Create a temporary instance to read configuration
+            var tempProvider = services.BuildServiceProvider();
+            var job = (ISchedulingJob)tempProvider.GetRequiredService(jobType!);
+
+            var schedule = job.Schedule;
+            var jobKey = new JobKey(job.Name, schedule.GroupName);
+
+            // Configure the job
+            configurator.AddJob(jobType!, jobKey, jobConfig =>
+            {
+                jobConfig.WithDescription(job.Description);
+            });
+
+            // Create trigger based on schedule type
+            configurator.AddTrigger(trigger =>
+            {
+                trigger
+                    .ForJob(jobKey)
+                    .WithIdentity($"{job.Name}-trigger", schedule.GroupName)
+                    .WithPriority((int)schedule.Priority);
+
+                // Configure schedule based on type
+                switch (schedule.ScheduleType)
+                {
+                    case SchedulingScheduleType.Cron:
+                        trigger.WithCronSchedule(schedule.CronExpression!, builder =>
+                        {
+                            builder.InTimeZone(schedule.TimeZone);
+
+                            if (schedule.MisfireHandlingEnabled)
+                            {
+                                ApplyCronMisfireStrategy(builder, schedule.MisfireStrategy);
+                            }
+                        });
+                        break;
+
+                    case SchedulingScheduleType.SimpleInterval:
+                        trigger
+                            .StartAt(DateTimeOffset.UtcNow.Add(schedule.StartDelay!.Value))
+                            .WithSimpleSchedule(builder =>
+                            {
+                                builder.WithInterval(schedule.Interval!.Value).RepeatForever();
+
+                                if (schedule.MaxExecutionCount.HasValue)
+                                {
+                                    builder.WithRepeatCount(schedule.MaxExecutionCount.Value - 1);
+                                }
+
+                                if (schedule.MisfireHandlingEnabled)
+                                {
+                                    ApplySimpleMisfireStrategy(builder, schedule.MisfireStrategy);
+                                }
+                            });
+                        break;
+
+                    case SchedulingScheduleType.SpecificTimeOnce:
+                        trigger.StartAt(schedule.StartAt!.Value);
+                        break;
+
+                    case SchedulingScheduleType.SpecificTimeWithInterval:
+                        trigger
+                            .StartAt(schedule.StartAt!.Value)
+                            .WithSimpleSchedule(builder =>
+                            {
+                                builder.WithInterval(schedule.Interval!.Value).RepeatForever();
+
+                                if (schedule.MaxExecutionCount.HasValue)
+                                {
+                                    builder.WithRepeatCount(schedule.MaxExecutionCount.Value - 1);
+                                }
+
+                                if (schedule.MisfireHandlingEnabled)
+                                {
+                                    ApplySimpleMisfireStrategy(builder, schedule.MisfireStrategy);
+                                }
+                            });
+                        break;
+                }
+            });
+        }
+    }
+
+    /// <summary>
+    /// Discovers and registers all ISchedulingJob implementations.
+    /// </summary>
+    /// <param name="services">Service collection.</param>
+    private static void RegisterSchedulingJobs(IServiceCollection services)
+    {
+        var assemblies = AppDomain.CurrentDomain.GetAssemblies()
+            .Where(a => !a.FullName!.StartsWith("System."))
+            .Where(a => !a.FullName!.StartsWith("Microsoft."));
+
+        var jobTypes = assemblies
+            .SelectMany(a => a.GetTypes())
+            .Where(t => typeof(ISchedulingJob).IsAssignableFrom(t))
+            .Where(t => !t.IsInterface && !t.IsAbstract)
+            .Where(t => t.GetConstructors().Any(c => c.GetParameters().Length > 0));
+
+        foreach (var jobType in jobTypes)
+        {
+            // Double registration pattern:
+            // 1. As concrete type (for DI injection)
             services.AddTransient(jobType);
 
-            // Also register as ISchedulingJob for discovery
+            // 2. As ISchedulingJob (for discovery)
             services.AddTransient(typeof(ISchedulingJob), jobType);
         }
     }

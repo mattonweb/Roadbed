@@ -1,9 +1,19 @@
 ﻿namespace Roadbed.Scheduling;
 
+using Quartz;
+using System.Threading;
+using System.Threading.Tasks;
+
 /// <summary>
 /// Base contract for all scheduled jobs.
 /// </summary>
-public interface ISchedulingJob
+/// <remarks>
+/// This interface extends Quartz.IJob to enable proper integration with the Quartz.NET scheduler.
+/// Jobs implementing this interface can be automatically discovered and registered by the
+/// scheduling framework. The Execute method from IJob is implemented explicitly in BaseSchedulingJob,
+/// while ExecuteAsync provides the user-facing method signature for job implementations.
+/// </remarks>
+public interface ISchedulingJob : IJob
 {
     #region Public Properties
 

@@ -4,19 +4,29 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using Quartz;
 
 /// <summary>
 /// Abstract base class for scheduled jobs providing common functionality.
 /// </summary>
 /// <typeparam name="T">Class inheriting from BaseSchedulingJob.</typeparam>
+/// <remarks>
+/// This base class provides two initialization patterns:
+/// 1. Constructor injection: Pass name, description, and schedule to base constructor
+/// 2. Property override: Override Name, Description, and Schedule properties in derived class
+///
+/// The Context property is available during job execution and can be used to set result messages
+/// via Context.Result, which will be captured by the metrics system.
+/// </remarks>
 public abstract class BaseSchedulingJob<T>
     : BaseClassWithLogging<T>, ISchedulingJob
 {
     #region Private Fields
 
-    private readonly string? _name;
     private readonly string? _description;
+    private readonly string? _name;
     private readonly SchedulingSchedule? _schedule;
+    private IJobExecutionContext? _currentContext;
 
     #endregion Private Fields
 
@@ -115,7 +125,63 @@ public abstract class BaseSchedulingJob<T>
 
     #endregion Public Properties
 
+    #region Protected Properties
+
+    /// <summary>
+    /// Gets the current job execution context.
+    /// </summary>
+    /// <remarks>
+    /// Available during job execution. Use to set result message or access execution metadata.
+    /// Example: this.Context.Result = "Processed 1,234 records".
+    /// </remarks>
+    /// <exception cref="InvalidOperationException">Thrown when accessed outside of ExecuteAsync method.</exception>
+    protected IJobExecutionContext Context
+    {
+        get
+        {
+            if (this._currentContext == null)
+            {
+                throw new InvalidOperationException(
+                    "Context is only available during job execution (within ExecuteAsync method).");
+            }
+
+            return this._currentContext;
+        }
+    }
+
+    #endregion Protected Properties
+
     #region Public Methods
+
+    /// <summary>
+    /// Quartz.NET job execution entry point.
+    /// </summary>
+    /// <param name="context">Quartz job execution context.</param>
+    /// <returns>Task representing the asynchronous operation.</returns>
+    /// <remarks>
+    /// This method implements IJob.Execute explicitly to bridge between Quartz.NET and the
+    /// user-facing ExecuteAsync method. It manages the Context property lifecycle, ensuring
+    /// it is available during ExecuteAsync execution and cleared afterwards.
+    /// </remarks>
+    /// <exception cref="ArgumentNullException">Thrown when context is null.</exception>
+    async Task IJob.Execute(IJobExecutionContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        // Store context for duration of execution
+        this._currentContext = context;
+
+        try
+        {
+            // Call the user-implemented ExecuteAsync
+            await this.ExecuteAsync(context.CancellationToken);
+        }
+        finally
+        {
+            // Clear context after execution (prevents access outside ExecuteAsync)
+            this._currentContext = null;
+        }
+    }
 
     /// <inheritdoc/>
     public abstract Task ExecuteAsync(CancellationToken cancellationToken);
