@@ -178,7 +178,8 @@ public sealed record NwsForecastPeriod
 
         // Extract precipitation chance if available
         decimal chanceOfPrecipitation = 0;
-        if (period.Precipitation?.Unit != null &&
+        if (period.Precipitation != null &&
+            !string.IsNullOrWhiteSpace(period.Precipitation.Unit) &&
             period.Precipitation.Unit.Equals(WmoUnitPercent, StringComparison.OrdinalIgnoreCase) &&
             !string.IsNullOrWhiteSpace(period.Precipitation.Value) &&
             decimal.TryParse(period.Precipitation.Value, out decimal parsedChance))
