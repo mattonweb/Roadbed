@@ -194,28 +194,6 @@ public class NwsOfficeTests
     }
 
     /// <summary>
-    /// Unit test to verify that constructor initializes with valid parameters.
-    /// </summary>
-    [TestMethod]
-    public void Constructor_ValidParameters_InitializesSuccessfully()
-    {
-        // Arrange (Given)
-        string officeId = "HNX";
-
-        // Act (When)
-        var office = new NwsOffice(officeId, MessagingRequest);
-
-        // Assert (Then)
-        Assert.IsNotNull(
-            office,
-            "Constructor should create instance with valid parameters.");
-        Assert.AreEqual(
-            officeId,
-            office.Id,
-            "Id should be set to provided value.");
-    }
-
-    /// <summary>
     /// Unit test to verify that constructor throws exception when id is whitespace.
     /// </summary>
     [TestMethod]

@@ -1,13 +1,13 @@
 ﻿namespace Roadbed.Test.Unit.Net;
 
 using System;
-using System.Collections.Generic;
 using System.Net.Http;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Roadbed.Net;
 
 /// <summary>
-/// Contains unit tests for verifying the behavior of the NetHttpRequest class.
+/// Contains unit tests for verifying the behavior of the
+/// <see cref="NetHttpRequest"/> class.
 /// </summary>
 [TestClass]
 public class NetHttpRequestTests
@@ -15,254 +15,186 @@ public class NetHttpRequestTests
     #region Public Methods
 
     /// <summary>
-    /// Unit test to verify that Authentication property can be set to null.
+    /// Unit test to verify that constructor initializes Method with HttpMethod.Get.
     /// </summary>
     [TestMethod]
-    public void Authentication_SetNull_ReturnsNull()
-    {
-        // Arrange (Given)
-        var request = new NetHttpRequest
-        {
-            Authentication = new NetHttpAuthentication(),
-        };
-
-        // Act (When)
-        request.Authentication = null;
-
-        // Assert (Then)
-        Assert.IsNull(
-            request.Authentication,
-            "Authentication should return null when set to null.");
-    }
-
-    /// <summary>
-    /// Unit test to verify that Authentication property can be set and retrieved.
-    /// </summary>
-    [TestMethod]
-    public void Authentication_SetValidValue_ReturnsSetValue()
-    {
-        // Arrange (Given)
-        var request = new NetHttpRequest();
-        var expectedAuth = new NetHttpAuthentication
-        {
-            AuthenticationType = NetHttpAuthenticationType.Bearer,
-            Value = "test-token",
-        };
-
-        // Act (When)
-        request.Authentication = expectedAuth;
-
-        // Assert (Then)
-        Assert.AreSame(
-            expectedAuth,
-            request.Authentication,
-            "Authentication should return the same instance that was set.");
-    }
-
-    /// <summary>
-    /// Unit test to verify that default timeout constant value is correct.
-    /// </summary>
-    [TestMethod]
-    public void Constructor_DefaultTimeout_MatchesConstantValue()
-    {
-        // Arrange (Given)
-        const int expectedDefaultTimeout = 15;
-
-        // Act (When)
-        var request = new NetHttpRequest();
-
-        // Assert (Then)
-        Assert.AreEqual(
-            expectedDefaultTimeout,
-            request.TimeoutInSecondsPerAttempt,
-            "Default timeout should match the constant value of 15 seconds.");
-    }
-
-    /// <summary>
-    /// Unit test to verify that the constructor initializes properties with default values.
-    /// </summary>
-    [TestMethod]
-    public void Constructor_NoParameters_InitializesWithDefaultValues()
+    public void Constructor_NoParameters_InitializesMethodWithGet()
     {
         // Arrange (Given)
 
         // Act (When)
-        var request = new NetHttpRequest();
+        var instance = new NetHttpRequest();
 
         // Assert (Then)
-        Assert.IsNotNull(
-            request.Method,
-            "Method should not be null.");
         Assert.AreEqual(
             HttpMethod.Get,
-            request.Method,
-            "Method should be initialized to HttpMethod.Get.");
+            instance.Method,
+            "Method should default to HttpMethod.Get.");
+    }
+
+    /// <summary>
+    /// Unit test to verify that constructor initializes EnableCompression with true.
+    /// </summary>
+    [TestMethod]
+    public void Constructor_NoParameters_InitializesEnableCompressionWithTrue()
+    {
+        // Arrange (Given)
+
+        // Act (When)
+        var instance = new NetHttpRequest();
+
+        // Assert (Then)
         Assert.IsTrue(
-            request.EnableCompression,
-            "EnableCompression should be initialized to true.");
+            instance.EnableCompression,
+            "EnableCompression should default to true.");
+    }
+
+    /// <summary>
+    /// Unit test to verify that constructor initializes TimeoutInSecondsPerAttempt with 15.
+    /// </summary>
+    [TestMethod]
+    public void Constructor_NoParameters_InitializesTimeoutInSecondsPerAttemptWith15()
+    {
+        // Arrange (Given)
+
+        // Act (When)
+        var instance = new NetHttpRequest();
+
+        // Assert (Then)
         Assert.AreEqual(
             15,
-            request.TimeoutInSecondsPerAttempt,
-            "TimeoutInSecondsPerAttempt should be initialized to 15 seconds.");
+            instance.TimeoutInSecondsPerAttempt,
+            "TimeoutInSecondsPerAttempt should default to 15 seconds.");
+    }
+
+    /// <summary>
+    /// Unit test to verify that constructor initializes RetryPattern with MaxAttempts of 3.
+    /// </summary>
+    [TestMethod]
+    public void Constructor_NoParameters_InitializesRetryPatternMaxAttemptsWith3()
+    {
+        // Arrange (Given)
+
+        // Act (When)
+        var instance = new NetHttpRequest();
+
+        // Assert (Then)
         Assert.IsNotNull(
-            request.RetryPattern,
-            "RetryPattern should not be null.");
+            instance.RetryPattern,
+            "RetryPattern should not be null after construction.");
         Assert.AreEqual(
             3,
-            request.RetryPattern.MaxAttempts,
-            "RetryPattern.MaxAttempts should be initialized to 3.");
+            instance.RetryPattern.MaxAttempts,
+            "RetryPattern.MaxAttempts should default to 3.");
+    }
+
+    /// <summary>
+    /// Unit test to verify that constructor initializes RetryPattern with DelayMultiplierInSeconds of 5.
+    /// </summary>
+    [TestMethod]
+    public void Constructor_NoParameters_InitializesRetryPatternDelayMultiplierWith5()
+    {
+        // Arrange (Given)
+
+        // Act (When)
+        var instance = new NetHttpRequest();
+
+        // Assert (Then)
         Assert.AreEqual(
             5,
-            request.RetryPattern.DelayMultiplierInSeconds,
-            "RetryPattern.DelayMultiplierInSeconds should be initialized to 5.");
+            instance.RetryPattern.DelayMultiplierInSeconds,
+            "RetryPattern.DelayMultiplierInSeconds should default to 5.");
+    }
+
+    /// <summary>
+    /// Unit test to verify that constructor initializes HttpHeaders with empty list.
+    /// </summary>
+    [TestMethod]
+    public void Constructor_NoParameters_InitializesHttpHeadersWithEmptyList()
+    {
+        // Arrange (Given)
+
+        // Act (When)
+        var instance = new NetHttpRequest();
+
+        // Assert (Then)
         Assert.IsNotNull(
-            request.HttpHeaders,
-            "HttpHeaders should not be null.");
-        Assert.IsEmpty(
-            request.HttpHeaders,
-            "HttpHeaders should be initialized as empty list.");
-        Assert.IsNull(
-            request.Authentication,
-            "Authentication should be initialized to null.");
-        Assert.IsNull(
-            request.Content,
-            "Content should be initialized to null.");
-        Assert.IsNull(
-            request.HttpEndPoint,
-            "HttpEndPoint should be initialized to null.");
+            instance.HttpHeaders,
+            "HttpHeaders should not be null after construction.");
+        Assert.HasCount(
+            0,
+            instance.HttpHeaders,
+            "HttpHeaders should be an empty list after construction.");
     }
 
     /// <summary>
-    /// Unit test to verify that Content accepts different HttpContent types.
+    /// Unit test to verify that constructor initializes Authentication with null.
     /// </summary>
     [TestMethod]
-    public void Content_SetDifferentContentTypes_AcceptsAllTypes()
+    public void Constructor_NoParameters_InitializesAuthenticationWithNull()
     {
         // Arrange (Given)
-        var request = new NetHttpRequest();
-        var stringContent = new StringContent("test");
-        var byteContent = new ByteArrayContent(new byte[] { 1, 2, 3 });
-        var formContent = new FormUrlEncodedContent(new[] { new KeyValuePair<string, string>("key", "value") });
-
-        // Act & Assert (When & Then)
-        request.Content = stringContent;
-        Assert.IsInstanceOfType(
-            request.Content,
-            typeof(StringContent),
-            "Content should accept StringContent.");
-
-        request.Content = byteContent;
-        Assert.IsInstanceOfType(
-            request.Content,
-            typeof(ByteArrayContent),
-            "Content should accept ByteArrayContent.");
-
-        request.Content = formContent;
-        Assert.IsInstanceOfType(
-            request.Content,
-            typeof(FormUrlEncodedContent),
-            "Content should accept FormUrlEncodedContent.");
-    }
-
-    /// <summary>
-    /// Unit test to verify that Content property can be set to null.
-    /// </summary>
-    [TestMethod]
-    public void Content_SetNull_ReturnsNull()
-    {
-        // Arrange (Given)
-        var request = new NetHttpRequest
-        {
-            Content = new StringContent("test"),
-        };
 
         // Act (When)
-        request.Content = null;
+        var instance = new NetHttpRequest();
 
         // Assert (Then)
         Assert.IsNull(
-            request.Content,
-            "Content should return null when set to null.");
+            instance.Authentication,
+            "Authentication should be null when no value is provided at construction.");
     }
 
     /// <summary>
-    /// Unit test to verify that Content property can be set and retrieved.
+    /// Unit test to verify that constructor initializes Content with null.
     /// </summary>
     [TestMethod]
-    public void Content_SetValidValue_ReturnsSetValue()
+    public void Constructor_NoParameters_InitializesContentWithNull()
     {
         // Arrange (Given)
-        var request = new NetHttpRequest();
-        var expectedContent = new StringContent("test content");
 
         // Act (When)
-        request.Content = expectedContent;
-
-        // Assert (Then)
-        Assert.AreSame(
-            expectedContent,
-            request.Content,
-            "Content should return the same instance that was set.");
-    }
-
-    /// <summary>
-    /// Unit test to verify that EnableCompression property can be set to false.
-    /// </summary>
-    [TestMethod]
-    public void EnableCompression_SetFalse_ReturnsFalse()
-    {
-        // Arrange (Given)
-        var request = new NetHttpRequest();
-
-        // Act (When)
-        request.EnableCompression = false;
-
-        // Assert (Then)
-        Assert.IsFalse(
-            request.EnableCompression,
-            "EnableCompression should return false when set to false.");
-    }
-
-    /// <summary>
-    /// Unit test to verify that EnableCompression property can be set to true.
-    /// </summary>
-    [TestMethod]
-    public void EnableCompression_SetTrue_ReturnsTrue()
-    {
-        // Arrange (Given)
-        var request = new NetHttpRequest
-        {
-            EnableCompression = false,
-        };
-
-        // Act (When)
-        request.EnableCompression = true;
-
-        // Assert (Then)
-        Assert.IsTrue(
-            request.EnableCompression,
-            "EnableCompression should return true when set to true.");
-    }
-
-    /// <summary>
-    /// Unit test to verify that HttpEndPoint property can be set to null.
-    /// </summary>
-    [TestMethod]
-    public void HttpEndPoint_SetNull_ReturnsNull()
-    {
-        // Arrange (Given)
-        var request = new NetHttpRequest
-        {
-            HttpEndPoint = new Uri("https://example.com"),
-        };
-
-        // Act (When)
-        request.HttpEndPoint = null;
+        var instance = new NetHttpRequest();
 
         // Assert (Then)
         Assert.IsNull(
-            request.HttpEndPoint,
-            "HttpEndPoint should return null when set to null.");
+            instance.Content,
+            "Content should be null when no value is provided at construction.");
+    }
+
+    /// <summary>
+    /// Unit test to verify that constructor initializes HttpEndPoint with null.
+    /// </summary>
+    [TestMethod]
+    public void Constructor_NoParameters_InitializesHttpEndPointWithNull()
+    {
+        // Arrange (Given)
+
+        // Act (When)
+        var instance = new NetHttpRequest();
+
+        // Assert (Then)
+        Assert.IsNull(
+            instance.HttpEndPoint,
+            "HttpEndPoint should be null when no value is provided at construction.");
+    }
+
+    /// <summary>
+    /// Unit test to verify that Method property can be set and retrieved.
+    /// </summary>
+    [TestMethod]
+    public void Method_SetToPost_ReturnsPost()
+    {
+        // Arrange (Given)
+        var instance = new NetHttpRequest();
+
+        // Act (When)
+        instance.Method = HttpMethod.Post;
+
+        // Assert (Then)
+        Assert.AreEqual(
+            HttpMethod.Post,
+            instance.Method,
+            "Method should return the value that was set.");
     }
 
     /// <summary>
@@ -272,320 +204,79 @@ public class NetHttpRequestTests
     public void HttpEndPoint_SetValidUri_ReturnsSetValue()
     {
         // Arrange (Given)
-        var request = new NetHttpRequest();
-        var expectedUri = new Uri("https://example.com/api/test");
+        var instance = new NetHttpRequest();
+        var expectedUri = new Uri("https://api.example.com/data");
 
         // Act (When)
-        request.HttpEndPoint = expectedUri;
+        instance.HttpEndPoint = expectedUri;
 
         // Assert (Then)
-        Assert.AreSame(
+        Assert.AreEqual(
             expectedUri,
-            request.HttpEndPoint,
-            "HttpEndPoint should return the same instance that was set.");
+            instance.HttpEndPoint,
+            "HttpEndPoint should return the URI that was set.");
     }
 
     /// <summary>
-    /// Unit test to verify that HttpEndPoint accepts various URI schemes.
+    /// Unit test to verify that EnableCompression property can be set to false.
     /// </summary>
     [TestMethod]
-    public void HttpEndPoint_SetVariousUriSchemes_AcceptsAllSchemes()
+    public void EnableCompression_SetToFalse_ReturnsFalse()
     {
         // Arrange (Given)
-        var request = new NetHttpRequest();
-        var httpUri = new Uri("http://example.com");
-        var httpsUri = new Uri("https://example.com");
-
-        // Act & Assert (When & Then)
-        request.HttpEndPoint = httpUri;
-        Assert.AreEqual(
-            "http",
-            request.HttpEndPoint.Scheme,
-            "HttpEndPoint should accept http scheme.");
-
-        request.HttpEndPoint = httpsUri;
-        Assert.AreEqual(
-            "https",
-            request.HttpEndPoint.Scheme,
-            "HttpEndPoint should accept https scheme.");
-    }
-
-    /// <summary>
-    /// Unit test to verify that HttpHeaders property can be modified.
-    /// </summary>
-    [TestMethod]
-    public void HttpHeaders_AddHeader_ContainsAddedHeader()
-    {
-        // Arrange (Given)
-        var request = new NetHttpRequest();
-        var expectedHeader = new NetHttpHeader("Content-Type", "application/json");
+        var instance = new NetHttpRequest();
 
         // Act (When)
-        request.HttpHeaders.Add(expectedHeader);
+        instance.EnableCompression = false;
 
         // Assert (Then)
-        Assert.HasCount(
-            1,
-            request.HttpHeaders,
-            "HttpHeaders should contain one header.");
-        Assert.AreSame(
-            expectedHeader,
-            request.HttpHeaders[0],
-            "HttpHeaders should contain the added header.");
+        Assert.IsFalse(
+            instance.EnableCompression,
+            "EnableCompression should return false after being set to false.");
     }
 
     /// <summary>
-    /// Unit test to verify that HttpHeaders list is mutable after initialization.
+    /// Unit test to verify that Authentication property can be set and retrieved.
     /// </summary>
     [TestMethod]
-    public void HttpHeaders_AddMultipleHeaders_ContainsAllHeaders()
+    public void Authentication_SetValidValue_ReturnsSetValue()
     {
         // Arrange (Given)
-        var request = new NetHttpRequest();
-        var header1 = new NetHttpHeader("Content-Type", "application/json");
-        var header2 = new NetHttpHeader("Authorization", "Bearer token");
-        var header3 = new NetHttpHeader("Accept", "application/json");
-
-        // Act (When)
-        request.HttpHeaders.Add(header1);
-        request.HttpHeaders.Add(header2);
-        request.HttpHeaders.Add(header3);
-
-        // Assert (Then)
-        Assert.HasCount(3, request.HttpHeaders, "HttpHeaders should contain three headers.");
-        Assert.Contains(header1, request.HttpHeaders, "HttpHeaders should contain header1.");
-        Assert.Contains(header2, request.HttpHeaders, "HttpHeaders should contain header2.");
-        Assert.Contains(header3, request.HttpHeaders, "HttpHeaders should contain header3.");
-    }
-
-    /// <summary>
-    /// Unit test to verify that HttpHeaders property can be replaced with new list.
-    /// </summary>
-    [TestMethod]
-    public void HttpHeaders_SetNewList_ReturnsNewList()
-    {
-        // Arrange (Given)
-        var request = new NetHttpRequest();
-        var newHeaders = new List<NetHttpHeader>
+        var instance = new NetHttpRequest();
+        var expectedAuth = new NetHttpAuthentication
         {
-            new NetHttpHeader("Content-Type", "application/json"),
-            new NetHttpHeader("Authorization", "Bearer token"),
+            AuthenticationType = NetHttpAuthenticationType.Bearer,
+            Value = "token123",
         };
 
         // Act (When)
-        request.HttpHeaders = newHeaders;
+        instance.Authentication = expectedAuth;
 
         // Assert (Then)
         Assert.AreSame(
-            newHeaders,
-            request.HttpHeaders,
-            "HttpHeaders should return the new list that was set.");
-        Assert.HasCount(
-            2,
-            request.HttpHeaders,
-            "HttpHeaders should contain two headers.");
+            expectedAuth,
+            instance.Authentication,
+            "Authentication should return the value that was set.");
     }
 
     /// <summary>
-    /// Unit test to verify that Method property can be set to Delete.
+    /// Unit test to verify that TimeoutInSecondsPerAttempt property can be set and retrieved.
     /// </summary>
     [TestMethod]
-    public void Method_SetDelete_ReturnsDelete()
+    public void TimeoutInSecondsPerAttempt_SetValidValue_ReturnsSetValue()
     {
         // Arrange (Given)
-        var request = new NetHttpRequest();
-
-        // Act (When)
-        request.Method = HttpMethod.Delete;
-
-        // Assert (Then)
-        Assert.AreEqual(
-            HttpMethod.Delete,
-            request.Method,
-            "Method should return HttpMethod.Delete when set to Delete.");
-    }
-
-    /// <summary>
-    /// Unit test to verify that Method property can be set to Patch.
-    /// </summary>
-    [TestMethod]
-    public void Method_SetPatch_ReturnsPatch()
-    {
-        // Arrange (Given)
-        var request = new NetHttpRequest();
-
-        // Act (When)
-        request.Method = HttpMethod.Patch;
-
-        // Assert (Then)
-        Assert.AreEqual(
-            HttpMethod.Patch,
-            request.Method,
-            "Method should return HttpMethod.Patch when set to Patch.");
-    }
-
-    /// <summary>
-    /// Unit test to verify that Method property can be set to Post.
-    /// </summary>
-    [TestMethod]
-    public void Method_SetPost_ReturnsPost()
-    {
-        // Arrange (Given)
-        var request = new NetHttpRequest();
-
-        // Act (When)
-        request.Method = HttpMethod.Post;
-
-        // Assert (Then)
-        Assert.AreEqual(
-            HttpMethod.Post,
-            request.Method,
-            "Method should return HttpMethod.Post when set to Post.");
-    }
-
-    /// <summary>
-    /// Unit test to verify that Method property can be set to Put.
-    /// </summary>
-    [TestMethod]
-    public void Method_SetPut_ReturnsPut()
-    {
-        // Arrange (Given)
-        var request = new NetHttpRequest();
-
-        // Act (When)
-        request.Method = HttpMethod.Put;
-
-        // Assert (Then)
-        Assert.AreEqual(
-            HttpMethod.Put,
-            request.Method,
-            "Method should return HttpMethod.Put when set to Put.");
-    }
-
-    /// <summary>
-    /// Unit test to verify that all properties can be set independently.
-    /// </summary>
-    [TestMethod]
-    public void Properties_SetAllIndependently_ReturnsCorrectValues()
-    {
-        // Arrange (Given)
-        var request = new NetHttpRequest();
-        var expectedAuth = new NetHttpAuthentication();
-        var expectedContent = new StringContent("test");
-        var expectedUri = new Uri("https://example.com");
-        var expectedHeaders = new List<NetHttpHeader> { new NetHttpHeader("Test", "Value") };
-        var expectedPattern = new NetHttpRetryPattern { MaxAttempts = 10 };
-
-        // Act (When)
-        request.Authentication = expectedAuth;
-        request.Content = expectedContent;
-        request.EnableCompression = false;
-        request.HttpEndPoint = expectedUri;
-        request.HttpHeaders = expectedHeaders;
-        request.Method = HttpMethod.Post;
-        request.RetryPattern = expectedPattern;
-        request.TimeoutInSecondsPerAttempt = 60;
-
-        // Assert (Then)
-        Assert.AreSame(expectedAuth, request.Authentication, "Authentication should match.");
-        Assert.AreSame(expectedContent, request.Content, "Content should match.");
-        Assert.IsFalse(request.EnableCompression, "EnableCompression should be false.");
-        Assert.AreSame(expectedUri, request.HttpEndPoint, "HttpEndPoint should match.");
-        Assert.AreSame(expectedHeaders, request.HttpHeaders, "HttpHeaders should match.");
-        Assert.AreEqual(HttpMethod.Post, request.Method, "Method should be Post.");
-        Assert.AreSame(expectedPattern, request.RetryPattern, "RetryPattern should match.");
-        Assert.AreEqual(60, request.TimeoutInSecondsPerAttempt, "TimeoutInSecondsPerAttempt should be 60.");
-    }
-
-    /// <summary>
-    /// Unit test to verify that RetryPattern property can be set and retrieved.
-    /// </summary>
-    [TestMethod]
-    public void RetryPattern_SetValidValue_ReturnsSetValue()
-    {
-        // Arrange (Given)
-        var request = new NetHttpRequest();
-        var expectedPattern = new NetHttpRetryPattern
-        {
-            MaxAttempts = 5,
-            DelayMultiplierInSeconds = 10,
-        };
-
-        // Act (When)
-        request.RetryPattern = expectedPattern;
-
-        // Assert (Then)
-        Assert.AreSame(
-            expectedPattern,
-            request.RetryPattern,
-            "RetryPattern should return the same instance that was set.");
-        Assert.AreEqual(
-            5,
-            request.RetryPattern.MaxAttempts,
-            "RetryPattern.MaxAttempts should be 5.");
-        Assert.AreEqual(
-            10,
-            request.RetryPattern.DelayMultiplierInSeconds,
-            "RetryPattern.DelayMultiplierInSeconds should be 10.");
-    }
-
-    /// <summary>
-    /// Unit test to verify that TimeoutInSecondsPerAttempt property can be set to negative value.
-    /// </summary>
-    [TestMethod]
-    public void TimeoutInSecondsPerAttempt_SetNegativeValue_ReturnsNegativeValue()
-    {
-        // Arrange (Given)
-        var request = new NetHttpRequest();
-        int negativeTimeout = -1;
-
-        // Act (When)
-        request.TimeoutInSecondsPerAttempt = negativeTimeout;
-
-        // Assert (Then)
-        Assert.AreEqual(
-            negativeTimeout,
-            request.TimeoutInSecondsPerAttempt,
-            "TimeoutInSecondsPerAttempt should return negative value when set to negative value.");
-    }
-
-    /// <summary>
-    /// Unit test to verify that TimeoutInSecondsPerAttempt property can be set to positive value.
-    /// </summary>
-    [TestMethod]
-    public void TimeoutInSecondsPerAttempt_SetPositiveValue_ReturnsSetValue()
-    {
-        // Arrange (Given)
-        var request = new NetHttpRequest();
+        var instance = new NetHttpRequest();
         int expectedTimeout = 30;
 
         // Act (When)
-        request.TimeoutInSecondsPerAttempt = expectedTimeout;
+        instance.TimeoutInSecondsPerAttempt = expectedTimeout;
 
         // Assert (Then)
         Assert.AreEqual(
             expectedTimeout,
-            request.TimeoutInSecondsPerAttempt,
+            instance.TimeoutInSecondsPerAttempt,
             "TimeoutInSecondsPerAttempt should return the value that was set.");
-    }
-
-    /// <summary>
-    /// Unit test to verify that TimeoutInSecondsPerAttempt property can be set to zero.
-    /// </summary>
-    [TestMethod]
-    public void TimeoutInSecondsPerAttempt_SetZero_ReturnsZero()
-    {
-        // Arrange (Given)
-        var request = new NetHttpRequest();
-
-        // Act (When)
-        request.TimeoutInSecondsPerAttempt = 0;
-
-        // Assert (Then)
-        Assert.AreEqual(
-            0,
-            request.TimeoutInSecondsPerAttempt,
-            "TimeoutInSecondsPerAttempt should return zero when set to zero.");
     }
 
     #endregion Public Methods

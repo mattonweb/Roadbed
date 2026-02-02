@@ -22,21 +22,7 @@
 
 	<ItemGroup>
 		<Compile Remove="Common\CommonTaskExtensionTests.cs" />
-		<Compile Remove="Crud\Mocks\UnitCountry.cs" />
-		<Compile Remove="Crud\Mocks\UnitCountryRepository.cs" />
-		<Compile Remove="Crud\Mocks\UnitCountryRow.cs" />
-		<Compile Remove="Crud\Mocks\UnitCurrency.cs" />
-		<Compile Remove="Crud\Mocks\UnitCurrencyRepository.cs" />
-		<Compile Remove="Crud\Mocks\UnitCurrencyRow.cs" />
-		<Compile Remove="Crud\Mocks\UnitLangauge.cs" />
-		<Compile Remove="Crud\Mocks\UnitLanguageRepository.cs" />
-		<Compile Remove="Crud\Mocks\UnitLanguageRow.cs" />
 		<Compile Remove="InMemoryLogger.cs" />
-		<Compile Remove="Crud\Mocks\UnitSimpleService.cs" />
-	</ItemGroup>
-
-	<ItemGroup>
-		<None Remove="Crud\Mocks\EmbeddedTextDocument.txt" />
 	</ItemGroup>
 
 	<ItemGroup>

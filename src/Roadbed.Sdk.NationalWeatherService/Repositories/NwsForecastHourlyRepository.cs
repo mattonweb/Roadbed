@@ -22,8 +22,9 @@ internal sealed class NwsForecastHourlyRepository
     /// Initializes a new instance of the <see cref="NwsForecastHourlyRepository"/> class.
     /// </summary>
     /// <param name="request">Messaging request for messages sent to API.</param>
-    public NwsForecastHourlyRepository(MessagingMessageRequest<CommonKeyValuePair<string, string>> request)
-        : base(request)
+    public NwsForecastHourlyRepository(
+        MessagingMessageRequest<CommonKeyValuePair<string, string>> request)
+        : base(request, ServiceLocator.GetService<INetHttpClient>())
     {
     }
 
@@ -60,7 +61,7 @@ internal sealed class NwsForecastHourlyRepository
 
         // Make HTTP request
         NetHttpResponse<string> response =
-            await NetHttpClient.MakeRequestAsync<string>(apiRequest, cancellationToken);
+            await this.HttpClient.MakeHttpRequestAsync<string>(apiRequest, cancellationToken);
 
         // Handle failure
         if (!response.IsSuccessStatusCode)

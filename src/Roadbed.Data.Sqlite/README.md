@@ -2,7 +2,10 @@
 
 SQLite-specific implementations for the Roadbed data access framework, including connection management and query execution with automatic retry logic.
 
+For the full type catalog, retry internals, and in-memory testing patterns, see the [Architecture Document](/docs/architectural-design/architecture-roadbed-sqlite.md).
+
 ## Installation
+
 ```bash
 dotnet add package Roadbed.Data.Sqlite
 ```
@@ -13,7 +16,6 @@ dotnet add package Roadbed.Data.Sqlite
 
 Creates and manages SQLite database connections. Implements `IDataConnectionFactory` from Roadbed.Data.
 
-#### Basic Usage
 ```csharp
 using Roadbed.Data;
 using Roadbed.Data.Sqlite;
@@ -21,100 +23,107 @@ using Roadbed.Data.Sqlite;
 // File-based database
 var connectionString = new DataConnecionString(DataConnectionStringType.Sqlite)
 {
-    DatabaseSource = @"C:\Data\myapp.db"
+    DatabaseSource = @"C:\Data\foo.db",
 };
 var factory = new SqliteConnectionFactory(connectionString);
-```
 
-#### Creating Connections
-```csharp
+// Connections are returned already open. Always dispose with 'using'.
 using var connection = await factory.CreateOpenConnectionAsync(cancellationToken);
 ```
 
-**Note**: Connections are returned already open. Always dispose them using `using` statements.
-
 ### SqliteExecutor
 
-Executes SQLite commands with built-in retry logic for transient errors (database locked, I/O errors, disk full).
+Executes SQLite commands via Dapper with built-in retry logic for transient errors.
 
 #### Available Methods
 
-| Method | Returns | Use For |
-|--------|---------|---------|
-| `ExecuteAsync` | `int` (rows affected) | INSERT, UPDATE, DELETE |
-| `ExecuteScalarAsync<T>` | `T` (single value) | INSERT with RETURNING, COUNT, MAX, etc. |
-| `QueryAsync<T>` | `IEnumerable<T>` | SELECT returning multiple rows |
-| `QuerySingleOrDefaultAsync<T>` | `T?` | SELECT returning 0 or 1 row |
+| Method                         | Returns               | Use For                                            |
+| ------------------------------ | --------------------- | -------------------------------------------------- |
+| `ExecuteAsync`                 | `int` (rows affected) | INSERT, UPDATE, DELETE, DDL                        |
+| `QueryAsync<T>`                | `IEnumerable<T>`      | SELECT returning multiple rows                     |
+| `QuerySingleOrDefaultAsync<T>` | `T?`                  | SELECT returning zero or one row                   |
+| `ExecuteScalarAsync<T>`        | `T?`                  | SELECT returning a single value (COUNT, MAX, etc.) |
 
-#### Basic Queries
+All methods share the same parameter signature:
+
 ```csharp
-using Roadbed.Data;
-using Roadbed.Data.Sqlite;
-
-// SELECT multiple rows
-var request = new DataExecutorRequest("SELECT * FROM foo_table");
-var results = await SqliteExecutor.QueryAsync<FooDto>(
-    request,
-    connectionFactory,
-    logger,
-    cancellationToken);
-
-// SELECT single row
-var request = new DataExecutorRequest("SELECT * FROM foo_table WHERE id = @Id")
-{
-    Parameters = new { Id = 123 }
-};
-var result = await SqliteExecutor.QuerySingleOrDefaultAsync<FooDto>(
-    request,
-    connectionFactory,
-    logger,
-    cancellationToken);
-```
-
-#### With Retry Logic
-```csharp
-var request = new DataExecutorRequest("INSERT INTO foo_table (name) VALUES (@Name)")
-{
-    Parameters = new { Name = "Test" },
-    RetriesEnabled = true,
-    MaxRetries = 3,
-    DelayBetweenRetries = TimeSpan.FromMilliseconds(100),
-    DelayMultiplierEnabled = false
-};
-
-int rowsAffected = await SqliteExecutor.ExecuteAsync(
-    request,
-    connectionFactory,
-    logger,
-    cancellationToken);
+SqliteExecutor.MethodAsync(
+    DataExecutorRequest request,
+    IDataConnectionFactory connectionFactory,
+    ILogger? logger = null,
+    CancellationToken cancellationToken = default);
 ```
 
 #### Transient Errors Handled Automatically
 
-SqliteExecutor automatically retries these SQLite error codes when retries are enabled:
+When retries are enabled (the default), these SQLite error codes are retried:
 
-- **5 (SQLITE_BUSY)**: Database is locked
-- **6 (SQLITE_LOCKED)**: Table is locked
-- **10 (SQLITE_IOERR)**: Disk I/O error
-- **13 (SQLITE_FULL)**: Disk full
+| Code | Constant        | Meaning            |
+| ---- | --------------- | ------------------ |
+| 5    | `SQLITE_BUSY`   | Database is locked |
+| 6    | `SQLITE_LOCKED` | Table is locked    |
+| 10   | `SQLITE_IOERR`  | Disk I/O error     |
+| 13   | `SQLITE_FULL`   | Disk full          |
+
+### SqliteConnectionExtensions
+
+`KeepAlive()` extension method for in-memory database testing. Holds a connection open to prevent the in-memory database from being destroyed.
+
+```csharp
+var connection = (SqliteConnection)factory.CreateOpenConnection();
+using var keepAlive = connection.KeepAlive();
+// Database persists until keepAlive is disposed
+```
+
+See the [Architecture Document](/docs/architectural-design/architecture-roadbed-sqlite.md) for full testing patterns.
 
 ## Complete Repository Example
+
 ```csharp
+using Microsoft.Extensions.Logging;
+using Roadbed;
 using Roadbed.Data;
 using Roadbed.Data.Sqlite;
-using Microsoft.Extensions.Logging;
+using Foo.Database;
 
-public class FooRepository
+internal sealed class FooRepository : BaseClassWithLogging
 {
-    private readonly IDataConnectionFactory _connectionFactory;
+    private readonly IFooDatabaseFactory _connectionFactory;
     private readonly ILogger<FooRepository> _logger;
 
     public FooRepository(
-        IDataConnectionFactory connectionFactory,
+        IFooDatabaseFactory connectionFactory,
         ILogger<FooRepository> logger)
+        : base(logger)
     {
-        _connectionFactory = connectionFactory;
-        _logger = logger;
+        ArgumentNullException.ThrowIfNull(connectionFactory);
+        this._connectionFactory = connectionFactory;
+        this._logger = logger;
+    }
+
+    public async Task<FooDto> CreateAsync(
+        FooDto entity,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(entity);
+
+        this.LogDebug("Creating foo: {Name}", entity.Name);
+
+        var request = new DataExecutorRequest(
+            @"INSERT INTO foo (name, description)
+              VALUES (@Name, @Description)
+              RETURNING id, name, description")
+        {
+            Parameters = new { entity.Name, entity.Description },
+        };
+
+        var result = await SqliteExecutor.QuerySingleOrDefaultAsync<FooDto>(
+            request,
+            this._connectionFactory,
+            this._logger,
+            cancellationToken);
+
+        return result!;
     }
 
     public async Task<FooDto?> ReadAsync(
@@ -122,95 +131,92 @@ public class FooRepository
         CancellationToken cancellationToken = default)
     {
         var request = new DataExecutorRequest(
-            "SELECT id, name, description FROM foo_table WHERE id = @Id")
+            @"SELECT
+                 f.id
+                ,f.name
+                ,f.description
+             FROM
+                 foo AS f
+             WHERE
+                 f.id = @Id
+             ;")
         {
-            Parameters = new { Id = id }
+            Parameters = new { Id = id },
+            RetriesEnabled = false,
         };
 
         return await SqliteExecutor.QuerySingleOrDefaultAsync<FooDto>(
             request,
-            _connectionFactory,
-            _logger,
+            this._connectionFactory,
+            this._logger,
             cancellationToken);
     }
 
-    public async Task<long> CreateAsync(
-        FooDto dto,
+    public async Task<FooDto> UpdateAsync(
+        FooDto entity,
         CancellationToken cancellationToken = default)
     {
-        var request = new DataExecutorRequest(@"
-            INSERT INTO foo_table (name, description)
-            VALUES (@Name, @Description);
-            SELECT last_insert_rowid();
-        ")
+        ArgumentNullException.ThrowIfNull(entity);
+
+        var request = new DataExecutorRequest(
+            @"UPDATE foo
+              SET
+                   name = @Name
+                  ,description = @Description
+              WHERE
+                  id = @Id
+              ;")
         {
-            Parameters = new { dto.Name, dto.Description },
-            RetriesEnabled = true,
-            MaxRetries = 3
+            Parameters = new { entity.Id, entity.Name, entity.Description },
         };
 
-        return await SqliteExecutor.ExecuteScalarAsync<long>(
+        await SqliteExecutor.ExecuteAsync(
             request,
-            _connectionFactory,
-            _logger,
-            cancellationToken);
-    }
-
-    public async Task<bool> UpdateAsync(
-        FooDto dto,
-        CancellationToken cancellationToken = default)
-    {
-        var request = new DataExecutorRequest(@"
-            UPDATE foo_table
-            SET name = @Name, description = @Description
-            WHERE id = @Id
-        ")
-        {
-            Parameters = new { dto.Id, dto.Name, dto.Description },
-            RetriesEnabled = true,
-            MaxRetries = 3
-        };
-
-        int rowsAffected = await SqliteExecutor.ExecuteAsync(
-            request,
-            _connectionFactory,
-            _logger,
+            this._connectionFactory,
+            this._logger,
             cancellationToken);
 
-        return rowsAffected > 0;
+        return entity;
     }
 
-    public async Task<bool> DeleteAsync(
+    public async Task DeleteAsync(
         long id,
         CancellationToken cancellationToken = default)
     {
         var request = new DataExecutorRequest(
-            "DELETE FROM foo_table WHERE id = @Id")
+            @"DELETE FROM foo WHERE id = @Id;")
         {
             Parameters = new { Id = id },
-            RetriesEnabled = true,
-            MaxRetries = 3
         };
 
-        int rowsAffected = await SqliteExecutor.ExecuteAsync(
+        await SqliteExecutor.ExecuteAsync(
             request,
-            _connectionFactory,
-            _logger,
+            this._connectionFactory,
+            this._logger,
             cancellationToken);
-
-        return rowsAffected > 0;
     }
 
     public async Task<IList<FooDto>> ListAsync(
         CancellationToken cancellationToken = default)
     {
         var request = new DataExecutorRequest(
-            "SELECT id, name, description FROM foo_table ORDER BY id DESC");
+            @"SELECT
+                 f.id
+                ,f.name
+                ,f.description
+             FROM
+                 foo AS f
+             ORDER BY
+                 f.name ASC
+             ;")
+        {
+            RetriesEnabled = false,
+        };
 
         var results = await SqliteExecutor.QueryAsync<FooDto>(
             request,
-            _connectionFactory,
-            _logger,
+            this._connectionFactory,
+            this._logger,
             cancellationToken);
 
         return results.ToList();
@@ -229,3 +235,4 @@ public class FooRepository
 
 - **Roadbed.Data** - Core data abstractions
 - **Roadbed.Data.Dapper** - Dapper configuration utilities
+

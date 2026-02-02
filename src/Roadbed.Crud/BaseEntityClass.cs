@@ -11,7 +11,7 @@ using Newtonsoft.Json;
 /// This class is marked as abstract to prevent direct instantiation.
 /// </remarks>
 [Serializable]
-public abstract record BaseEntityClass<TId>
+public abstract class BaseEntityClass<TId>
     : IEntity<TId>
 {
     #region Protected Constructors

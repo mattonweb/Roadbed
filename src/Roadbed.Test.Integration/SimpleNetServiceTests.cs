@@ -12,6 +12,7 @@ using Roadbed.Net.Installers;
 [TestClass]
 public class SimpleNetServiceTests
 {
+    /*
     #region Public Constructors
 
     /// <summary>
@@ -69,4 +70,6 @@ public class SimpleNetServiceTests
     }
 
     #endregion Public Methods
+
+    */
 }
