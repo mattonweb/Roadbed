@@ -22,8 +22,9 @@ internal sealed class NwsOfficeRepository
     /// Initializes a new instance of the <see cref="NwsOfficeRepository"/> class.
     /// </summary>
     /// <param name="request">Messaging request for messages sent to API.</param>
-    public NwsOfficeRepository(MessagingMessageRequest<CommonKeyValuePair<string, string>> request)
-        : base(request)
+    public NwsOfficeRepository(
+        MessagingMessageRequest<CommonKeyValuePair<string, string>> request)
+        : base(request, ServiceLocator.GetService<INetHttpClient>())
     {
     }
 
@@ -53,7 +54,7 @@ internal sealed class NwsOfficeRepository
 
         // Make HTTP request
         NetHttpResponse<string> response =
-            await NetHttpClient.MakeRequestAsync<string>(apiRequest, cancellationToken);
+            await this.HttpClient.MakeHttpRequestAsync<string>(apiRequest, cancellationToken);
 
         // Handle failure
         if (!response.IsSuccessStatusCode)

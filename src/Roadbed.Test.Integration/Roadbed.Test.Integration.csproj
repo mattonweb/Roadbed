@@ -21,7 +21,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Remove="Net\Mocks\IntegrationObjectAttribute.cs" />
     <Compile Remove="Net\NetServiceTests.cs" />
     <Compile Remove="Sdk.NationalWeatherService\NwsForecastTests.cs" />
   </ItemGroup>
@@ -41,6 +40,10 @@
     <ProjectReference Include="..\Roadbed.Crud\Roadbed.Crud.csproj" />
     <ProjectReference Include="..\Roadbed.Net\Roadbed.Net.csproj" />
     <ProjectReference Include="..\Roadbed.Sdk.NationalWeatherService\Roadbed.Sdk.NationalWeatherService.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="Net\" />
   </ItemGroup>
 
 </Project>

@@ -32,8 +32,9 @@ internal sealed class NwsAdminDistrictRepository
     /// Initializes a new instance of the <see cref="NwsAdminDistrictRepository"/> class.
     /// </summary>
     /// <param name="request">Messaging request for messages sent to API.</param>
-    public NwsAdminDistrictRepository(MessagingMessageRequest<CommonKeyValuePair<string, string>> request)
-        : base(request)
+    public NwsAdminDistrictRepository(
+        MessagingMessageRequest<CommonKeyValuePair<string, string>> request)
+        : base(request, ServiceLocator.GetService<INetHttpClient>())
     {
     }
 
@@ -118,7 +119,7 @@ internal sealed class NwsAdminDistrictRepository
 
         // Make HTTP request
         NetHttpResponse<string> response =
-            await NetHttpClient.MakeRequestAsync<string>(apiRequest, cancellationToken);
+            await this.HttpClient.MakeHttpRequestAsync<string>(apiRequest, cancellationToken);
 
         // Handle failure
         if (!response.IsSuccessStatusCode)

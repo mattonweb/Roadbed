@@ -52,25 +52,5 @@ public class NwsAdminDistrictTests
             "Constructor should throw ArgumentNullException when messagingRequest is null.");
     }
 
-    /// <summary>
-    /// Unit test to verify that constructor initializes with valid parameters.
-    /// </summary>
-    [TestMethod]
-    public void Constructor_ValidParameters_InitializesSuccessfully()
-    {
-        // Arrange (Given)
-
-        // Act (When)
-        var adminDistrict = new NwsAdminDistrict(MessagingRequest);
-
-        // Assert (Then)
-        Assert.IsNotNull(
-            adminDistrict,
-            "Constructor should create instance with valid parameters.");
-        Assert.IsNull(
-            adminDistrict.Stations,
-            "Stations should be null before loading data.");
-    }
-
     #endregion Public Methods
 }

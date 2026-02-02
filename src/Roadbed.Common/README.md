@@ -1,12 +1,15 @@
-# Roadbed
+# Roadbed.Common
 
 Core library providing foundational abstractions, dependency injection utilities, logging base classes, and environment management.
 
 ## Overview
 
-This is the foundation package for the Roadbed framework. It provides automatic module discovery and registration, base classes with built-in logging, and environment configuration utilities.
+This is the foundation package for the Roadbed framework. It provides automatic module discovery and registration, base classes with built-in performance-optimized logging, and shared utility types used across all Roadbed packages.
+
+For the full type catalog, API signatures, and design rationale, see the [Architecture Document](/docs/architectural-design/architecture-roadbed-common.md).
 
 ## Installation
+
 ```bash
 dotnet add package Roadbed.Common
 ```
@@ -18,6 +21,7 @@ dotnet add package Roadbed.Common
 Automatically find and register all `IServiceCollectionInstaller` implementations in your application domain.
 
 #### Application Startup
+
 ```csharp
 using Roadbed;
 
@@ -27,82 +31,76 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.InstallModulesInAppDomain(builder.Configuration);
 
 var app = builder.Build();
+app.Run();
 ```
 
-This single line:
-1. Scans all loaded assemblies for `IServiceCollectionInstaller` implementations
-2. Instantiates each installer
-3. Calls `ConfigureServices()` on each
-4. Wires up ServiceLocator for NuGet package self-containment
+This single call scans all loaded assemblies via BFS, finds every `IServiceCollectionInstaller`, and calls `ConfigureServices()` on each one. No manual wiring needed.
 
 #### Create Module Installers
+
+Each class library implements one installer:
+
 ```csharp
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Roadbed;
 
-public class InstallMyModule : IServiceCollectionInstaller
+public class InstallFooSdk : IServiceCollectionInstaller
 {
     public void ConfigureServices(IServiceCollection services, IConfiguration configuration)
     {
-        // Register your services
-        services.AddScoped<IFooRepository, FooRepository>();
-        services.AddScoped<FooEntity>();
-        
-        // Configure Dapper, etc.
-        DapperMapping.Configure(typeof(FooDto));
-        
-        // Capture snapshot for ServiceLocator (for NuGet packages)
+        services.AddSingleton<IFooRepository, FooRepository>();
+        services.AddSingleton<IFooService, FooService>();
+
+        // Capture snapshot for ServiceLocator (for NuGet self-containment)
         ServiceLocator.SetLocatorProvider(services.BuildServiceProvider());
     }
 }
 ```
 
-The installer is discovered and executed automatically - no manual registration needed!
+The installer is discovered and executed automatically — no manual registration needed.
 
-### BaseClassWithLogging\<T\>
+### BaseClassWithLogging
 
-Base class providing convenient logging methods with automatic log level checking for performance.
+Base class providing convenient logging methods with automatic log level checking for performance. All logging methods check `IsEnabled()` before formatting messages, preventing unnecessary string allocation.
+
 ```csharp
-using Roadbed;
 using Microsoft.Extensions.Logging;
+using Roadbed;
 
-public class FooService : BaseClassWithLogging<FooService>
+public sealed class FooService : BaseClassWithLogging
 {
-    public FooService(ILoggerFactory factory)
-        : base(factory)
+    private readonly IBarRepository _repository;
+
+    public FooService(
+        IBarRepository repository,
+        ILogger<FooService> logger)
+        : base(logger)
     {
+        ArgumentNullException.ThrowIfNull(repository);
+        this._repository = repository;
     }
-    
-    public void DoWork()
+
+    public async Task ProcessAsync(CancellationToken cancellationToken = default)
     {
-        this.LogDebug("Starting work");
-        this.LogInformation("Processing item {Id}", itemId);
-        
-        try
+        this.LogInformation("Starting process");
+
+        var items = await this._repository.ListAsync(cancellationToken);
+        this.LogDebug("Found {Count} items", items.Count);
+
+        foreach (var item in items)
         {
-            // Business logic
-            this.LogTrace("Detailed trace info");
-        }
-        catch (Exception ex)
-        {
-            this.LogError(ex, "Work failed for {Id}", itemId);
-            throw;
-        }
-    }
-    
-    public void ProcessWithScope(string transactionId)
-    {
-        using (this.BeginScope("transactionId", transactionId))
-        {
-            this.LogInformation("Processing transaction");
-            // All logs within this scope will include transactionId
+            using (this.BeginScope("itemId", item.Id))
+            {
+                this.LogTrace("Processing item");
+                // Business logic
+            }
         }
     }
 }
 ```
 
 #### Available Log Methods
+
 ```csharp
 // Simple messages
 this.LogTrace("message");
@@ -110,167 +108,84 @@ this.LogDebug("message");
 this.LogInformation("message");
 this.LogWarning("message");
 this.LogError("message");
+this.LogCritical("message");
 
 // With parameters (structured logging)
 this.LogInformation("User {UserId} logged in", userId);
-this.LogWarning("Failed attempt {Count} for {User}", attemptCount, username);
 
 // With exceptions
-this.LogError(exception, "Operation failed");
-this.LogError(exception, "Failed for {Id}", itemId);
+this.LogError(exception, "Operation failed for {Id}", itemId);
+this.LogWarning(exception, "Retry attempt {Count}", retryCount);
+this.LogCritical(exception, "Fatal error in {Service}", serviceName);
 
 // Scoped logging
-using (this.BeginScope("key", value))
+using (this.BeginScope("transactionId", transactionId))
 {
-    // All logs include the scope
+    this.LogInformation("All logs in this block include transactionId");
 }
 ```
 
 #### Performance Benefits
 
-All logging methods check `IsEnabled()` before formatting messages, preventing unnecessary allocations:
 ```csharp
-// ✅ Efficient - only formats if Debug logging is enabled
+// ✅ Efficient — only formats if Debug logging is enabled
 this.LogDebug("Processing {Count} items", items.Count);
 
-// ❌ Wasteful - always formats even if Debug is disabled
-this.Logger.LogDebug("Processing {Count} items", items.Count);
+// ❌ Wasteful — always formats even if Debug is disabled
+this._logger.LogDebug("Processing {Count} items", items.Count);
 ```
+
+#### When You Need ILoggerFactory
+
+For classes that need to create child loggers, use `BaseClassWithLoggingFactory<T>` instead:
+
+```csharp
+public sealed class FooOrchestrator : BaseClassWithLoggingFactory<FooOrchestrator>
+{
+    public FooOrchestrator(ILoggerFactory loggerFactory)
+        : base(loggerFactory)
+    {
+    }
+}
+```
+
+Most classes should use `BaseClassWithLogging` with `ILogger<T>`. See the [Architecture Document](/docs/architectural-design/architecture-roadbed-common.md) for the decision guide.
 
 ### Environment Configuration
 
-Standardized environment detection and configuration.
+Standardized environment detection with a string extension method:
 
-#### CommonEnvironmentType Enum
-```csharp
-public enum CommonEnvironmentType
-{
-    Unknown = 0,
-    Local = 1,
-    Development = 3,
-    Qa = 5,
-    Staging = 7,
-    Production = 9
-}
-```
-
-#### Usage
 ```csharp
 using Roadbed;
 
-// In appsettings.json
-{
-  "Environment": "Development"
-}
-
-// In code
 string envString = configuration["Environment"];
 CommonEnvironmentType environment = envString.GetCommonEnvironment();
-
-switch (environment)
-{
-    case CommonEnvironmentType.Production:
-        // Production-specific configuration
-        break;
-    case CommonEnvironmentType.Development:
-        // Development-specific configuration
-        break;
-}
 ```
 
-#### String Conversion
+Recognized strings (case-insensitive):
 
-The `GetCommonEnvironment()` extension method handles various formats:
+| Input                    | Result        |
+| ------------------------ | ------------- |
+| `"local"`                | `Local`       |
+| `"dev"`, `"development"` | `Development` |
+| `"qa"`, `"test"`         | `Qa`          |
+| `"staging"`              | `Staging`     |
+| `"pro"`, `"production"`  | `Production`  |
+| anything else            | `Unknown`     |
+
+### ServiceLocator
+
+While generally an anti-pattern, `ServiceLocator` enables NuGet packages to operate self-contained without requiring consumers to manually register internal dependencies.
+
 ```csharp
-"local".GetCommonEnvironment()        // → Local
-"dev".GetCommonEnvironment()          // → Development
-"development".GetCommonEnvironment()  // → Development
-"qa".GetCommonEnvironment()           // → Qa
-"test".GetCommonEnvironment()         // → Qa
-"staging".GetCommonEnvironment()      // → Staging
-"pro".GetCommonEnvironment()          // → Production
-"production".GetCommonEnvironment()   // → Production
-"invalid".GetCommonEnvironment()      // → Unknown
-```
-
-## Complete Setup Example
-
-### 1. Create Module Installer
-```csharp
-// MyApp.Data/Installers/InstallDataModule.cs
-using Roadbed;
-
-public class InstallDataModule : IServiceCollectionInstaller
-{
-    public void ConfigureServices(IServiceCollection services, IConfiguration configuration)
-    {
-        // Configure Dapper
-        DapperMapping.Configure(typeof(FooDto), typeof(BarDto));
-        
-        // Register repositories
-        services.AddScoped<IFooRepository, FooRepository>();
-        services.AddScoped<IBarRepository, BarRepository>();
-        
-        // Register entities
-        services.AddScoped<FooEntity>();
-        services.AddScoped<BarEntity>();
-        
-        // Capture ServiceLocator snapshot
-        ServiceLocator.SetLocatorProvider(services.BuildServiceProvider());
-    }
-}
-```
-
-### 2. Application Startup
-```csharp
-// Program.cs
-using Roadbed;
-
-var builder = WebApplication.CreateBuilder(args);
-
-// Single line auto-discovers and registers all modules
-builder.Services.InstallModulesInAppDomain(builder.Configuration);
-
-var app = builder.Build();
-app.Run();
-```
-
-### 3. Use in Services
-```csharp
-public class FooService : BaseClassWithLogging<FooService>
-{
-    private readonly FooEntity _fooEntity;
-
-    public FooService(FooEntity fooEntity, ILoggerFactory factory)
-        : base(factory)
-    {
-        _fooEntity = fooEntity;
-    }
-
-    public async Task ProcessAsync()
-    {
-        this.LogInformation("Starting process");
-        
-        var items = await _fooEntity.ListAsync();
-        this.LogDebug("Found {Count} items", items.Count);
-        
-        // Business logic
-    }
-}
-```
-
-## ServiceLocator Pattern
-
-While generally considered an anti-pattern, ServiceLocator is used internally by NuGet packages to enable self-contained operation without requiring consumers to manually register dependencies.
-```csharp
-// In your installer
+// Inside your installer
 ServiceLocator.SetLocatorProvider(services.BuildServiceProvider());
 
 // Internal NuGet package usage (you typically won't call this directly)
 var logger = ServiceLocator.GetService<ILoggerFactory>();
 ```
 
-**Note**: Application code should use dependency injection, not ServiceLocator. This is only for NuGet package internals.
+Application code should use constructor injection, not `ServiceLocator`.
 
 ## Requirements
 
@@ -278,3 +193,4 @@ var logger = ServiceLocator.GetService<ILoggerFactory>();
 - Microsoft.Extensions.DependencyInjection
 - Microsoft.Extensions.Logging
 - Microsoft.Extensions.Configuration
+

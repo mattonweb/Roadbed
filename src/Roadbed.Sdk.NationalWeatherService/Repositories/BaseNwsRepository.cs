@@ -23,17 +23,24 @@ internal abstract class BaseNwsRepository
 
     #endregion Public Fields
 
+    private readonly INetHttpClient _httpClient;
+
     #region Protected Constructors
 
     /// <summary>
     /// Initializes a new instance of the <see cref="BaseNwsRepository"/> class.
     /// </summary>
     /// <param name="request">Messaging request for messages sent to API.</param>
+    /// <param name="httpClient">HTTP client for API requests.</param>
     /// <exception cref="ArgumentNullException">Thrown when request is null.</exception>
-    protected BaseNwsRepository(MessagingMessageRequest<CommonKeyValuePair<string, string>> request)
+    protected BaseNwsRepository(
+        MessagingMessageRequest<CommonKeyValuePair<string, string>> request,
+        INetHttpClient httpClient)
         : base(ServiceLocator.GetService<ILoggerFactory>())
     {
+        ArgumentNullException.ThrowIfNull(httpClient);
         ArgumentNullException.ThrowIfNull(request);
+        this._httpClient = httpClient;
         this.Request = request;
     }
 
@@ -41,14 +48,18 @@ internal abstract class BaseNwsRepository
     /// Initializes a new instance of the <see cref="BaseNwsRepository"/> class.
     /// </summary>
     /// <param name="request">Messaging request for messages sent to API.</param>
+    /// <param name="httpClient">HTTP client for API requests.</param>
     /// <param name="logger">Represents a type used to perform logging.</param>
     /// <exception cref="ArgumentNullException">Thrown when request is null.</exception>
     protected BaseNwsRepository(
         MessagingMessageRequest<CommonKeyValuePair<string, string>> request,
+        INetHttpClient httpClient,
         ILogger logger)
         : base(logger)
     {
+        ArgumentNullException.ThrowIfNull(httpClient);
         ArgumentNullException.ThrowIfNull(request);
+        this._httpClient = httpClient;
         this.Request = request;
     }
 
@@ -56,14 +67,18 @@ internal abstract class BaseNwsRepository
     /// Initializes a new instance of the <see cref="BaseNwsRepository"/> class.
     /// </summary>
     /// <param name="request">Messaging request for messages sent to API.</param>
+    /// <param name="httpClient">HTTP client for API requests.</param>
     /// <param name="loggerFactory">Represents a type used to configure the logging system and create instances of ILogger from the registered ILoggerProviders.</param>
     /// <exception cref="ArgumentNullException">Thrown when request is null.</exception>
     protected BaseNwsRepository(
         MessagingMessageRequest<CommonKeyValuePair<string, string>> request,
+        INetHttpClient httpClient,
         ILoggerFactory loggerFactory)
         : base(loggerFactory)
     {
+        ArgumentNullException.ThrowIfNull(httpClient);
         ArgumentNullException.ThrowIfNull(request);
+        this._httpClient = httpClient;
         this.Request = request;
     }
 
@@ -75,6 +90,11 @@ internal abstract class BaseNwsRepository
     /// Gets the message request.
     /// </summary>
     protected MessagingMessageRequest<CommonKeyValuePair<string, string>> Request { get; private set; }
+
+    /// <summary>
+    /// Gets the Http Cient for making requests to the National Weather Service API.
+    /// </summary>
+    protected INetHttpClient HttpClient => this._httpClient;
 
     #endregion Protected Properties
 
