@@ -45,6 +45,21 @@ public abstract class IoFile
     #region Public Methods
 
     /// <summary>
+    /// Validates the file info for files.
+    /// </summary>
+    /// <param name="fileInfo">File information to validate.</param>
+    /// <exception cref="ArgumentNullException">File info is null or file extension is null or empty.</exception>
+    public static void ValidateFileInfo(IoFileInfo? fileInfo)
+    {
+        ArgumentNullException.ThrowIfNull(fileInfo);
+
+        if (string.IsNullOrWhiteSpace(fileInfo.Extension))
+        {
+            throw new ArgumentNullException(nameof(fileInfo), "File extension is null or empty.");
+        }
+    }
+
+    /// <summary>
     /// Saves the file content to the file path specified in <see cref="IoFile(IoFileInfo)"/>.
     /// </summary>
     /// <param name="fileContent">Content of the file to be saved.</param>
@@ -87,23 +102,4 @@ public abstract class IoFile
     }
 
     #endregion Public Methods
-
-    #region Internal Methods
-
-    /// <summary>
-    /// Validates the file info for files.
-    /// </summary>
-    /// <param name="fileInfo">File information to validate.</param>
-    /// <exception cref="ArgumentNullException">File info is null or file extension is null or empty.</exception>
-    internal static void ValidateFileInfo(IoFileInfo? fileInfo)
-    {
-        ArgumentNullException.ThrowIfNull(fileInfo);
-
-        if (string.IsNullOrWhiteSpace(fileInfo.Extension))
-        {
-            throw new ArgumentNullException(nameof(fileInfo), "File extension is null or empty.");
-        }
-    }
-
-    #endregion Internal Methods
 }

@@ -1,8 +1,4 @@
-﻿/*
- * The namespace Roadbed.IO.Entities was removed on purpose and replaced with Roadbed.IO so that no additional using statements are required.
- */
-
-namespace Roadbed.IO;
+﻿namespace Roadbed.IO;
 
 using System;
 using System.Collections.Generic;
