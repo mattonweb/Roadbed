@@ -53,6 +53,7 @@
 		<ProjectReference Include="..\Roadbed.Data.Postgresql\Roadbed.Data.Postgresql.csproj" />
 		<ProjectReference Include="..\Roadbed.Data.Sqlite\Roadbed.Data.Sqlite.csproj" />
 		<ProjectReference Include="..\Roadbed.Data\Roadbed.Data.csproj" />
+		<ProjectReference Include="..\Roadbed.IO.Csv\Roadbed.IO.Csv.csproj" />
 		<ProjectReference Include="..\Roadbed.IO\Roadbed.IO.csproj" />
 		<ProjectReference Include="..\Roadbed.Messaging\Roadbed.Messaging.csproj" />
 		<ProjectReference Include="..\Roadbed.Net\Roadbed.Net.csproj" />

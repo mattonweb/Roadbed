@@ -1,0 +1,23 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+
+	  <!-- Make sure any documentation comments which are included in code get checked for syntax during the build -->
+	  <GenerateDocumentationFile>true</GenerateDocumentationFile>
+	  <RootNamespace>Roadbed.IO</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Roadbed.IO\Roadbed.IO.csproj" />
+  </ItemGroup>
+
+	<ItemGroup>
+		<InternalsVisibleTo Include="Roadbed.Test.Unit" />
+		<InternalsVisibleTo Include="Roadbed.Test.Integration" />
+		<InternalsVisibleTo Include="DynamicProxyGenAssembly2" />
+	</ItemGroup>
+
+</Project>
