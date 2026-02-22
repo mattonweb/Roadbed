@@ -74,6 +74,34 @@ public abstract class BaseSchedulingJob<T>
         this._schedule = schedule;
     }
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="BaseSchedulingJob{T}"/> class for manual-only execution.
+    /// </summary>
+    /// <param name="name">The unique name for this job.</param>
+    /// <param name="description">A description of what this job does.</param>
+    /// <param name="logger">Represents a type used to perform logging.</param>
+    /// <remarks>
+    /// Jobs created with this constructor have no automatic schedule and must be triggered
+    /// programmatically via <c>ISchedulerFactory</c>. They are registered as durable in Quartz
+    /// (persisted without a trigger). Use <c>scheduler.TriggerJob(new JobKey(name, groupName))</c>
+    /// to execute on demand.
+    /// </remarks>
+    /// <exception cref="ArgumentException">Thrown when name or description is null or whitespace.</exception>
+    /// <exception cref="ArgumentNullException">Thrown when logger is null.</exception>
+    protected BaseSchedulingJob(
+        string name,
+        string description,
+        ILogger logger)
+        : base(logger)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+
+        this._name = name;
+        this._description = description;
+        this._schedule = new SchedulingSchedule();
+    }
+
     #endregion Protected Constructors
 
     #region Public Properties

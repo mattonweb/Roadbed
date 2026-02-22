@@ -27,4 +27,14 @@ public enum SchedulingScheduleType
     /// Schedule starts at a specific date and time, then repeats at an interval.
     /// </summary>
     SpecificTimeWithInterval = 3,
+
+    /// <summary>
+    /// Job has no automatic schedule and must be triggered programmatically.
+    /// </summary>
+    /// <remarks>
+    /// Jobs with this schedule type are registered as durable in Quartz (persisted without a trigger).
+    /// They can be executed on demand via <c>ISchedulerFactory</c> by calling
+    /// <c>scheduler.TriggerJob(new JobKey(name, groupName))</c>.
+    /// </remarks>
+    ManualOnly = 4,
 }

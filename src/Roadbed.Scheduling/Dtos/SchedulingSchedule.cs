@@ -17,6 +17,24 @@ public sealed class SchedulingSchedule
     #region Public Constructors
 
     /// <summary>
+    /// Initializes a new instance of the <see cref="SchedulingSchedule"/> class for manual-only execution.
+    /// </summary>
+    /// <remarks>
+    /// Jobs with this schedule type are registered as durable in Quartz but have no trigger.
+    /// They can only be executed by programmatically triggering them via <c>ISchedulerFactory</c>.
+    /// </remarks>
+    /// <example>
+    /// <code>
+    /// // Create a manual-only schedule in the "Forecast" group
+    /// var schedule = new SchedulingSchedule() { GroupName = "Forecast" };
+    /// </code>
+    /// </example>
+    public SchedulingSchedule()
+    {
+        this.ScheduleType = SchedulingScheduleType.ManualOnly;
+    }
+
+    /// <summary>
     /// Initializes a new instance of the <see cref="SchedulingSchedule"/> class with a cron expression.
     /// </summary>
     /// <param name="cronExpression">Cron expression defining when the job should execute.</param>
