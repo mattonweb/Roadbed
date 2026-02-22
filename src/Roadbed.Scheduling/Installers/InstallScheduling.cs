@@ -169,7 +169,18 @@ public class InstallScheduling : IServiceCollectionInstaller
             configurator.AddJob(jobType!, jobKey, jobConfig =>
             {
                 jobConfig.WithDescription(job.Description);
+
+                if (schedule.ScheduleType == SchedulingScheduleType.ManualOnly)
+                {
+                    jobConfig.StoreDurably();
+                }
             });
+
+            // Manual-only jobs have no trigger; they are triggered programmatically
+            if (schedule.ScheduleType == SchedulingScheduleType.ManualOnly)
+            {
+                continue;
+            }
 
             // Create trigger based on schedule type
             configurator.AddTrigger(trigger =>
