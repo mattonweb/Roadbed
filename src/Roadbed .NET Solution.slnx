@@ -18,5 +18,4 @@
   <Project Path="Roadbed.Messaging/Roadbed.Messaging.csproj" Id="766c9d43-21ee-4320-8b00-57ad2291754f" />
   <Project Path="Roadbed.Net/Roadbed.Net.csproj" Id="b63606f8-9536-4835-afe5-220702504e0a" />
   <Project Path="Roadbed.Scheduling/Roadbed.Scheduling.csproj" Id="d403b137-054c-4f72-b6cc-e75b0798328f" />
-  <Project Path="Roadbed.Sdk.NationalWeatherService/Roadbed.Sdk.NationalWeatherService.csproj" Id="799aa031-d8b5-413f-9868-6d0244ff3ac9" />
 </Solution>

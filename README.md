@@ -62,7 +62,6 @@ For detailed documentation on each package:
 - [Roadbed.Messaging](/src/Roadbed.Messaging/README.md) - Message envelopes
 - [Roadbed.Net](/src/Roadbed.Net/README.md) - HTTP client wrapper
 - [Roadbed.Scheduling](/src/Roadbed.Scheduling/README.md) - Job scheduling
-- [Roadbed.Sdk.NationalWeatherService](/src/Roadbed.Sdk.NationalWeatherService/README.md) - NWS API client
 
 ## Quick Start
 

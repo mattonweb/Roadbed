@@ -58,7 +58,6 @@
 		<ProjectReference Include="..\Roadbed.Messaging\Roadbed.Messaging.csproj" />
 		<ProjectReference Include="..\Roadbed.Net\Roadbed.Net.csproj" />
 		<ProjectReference Include="..\Roadbed.Scheduling\Roadbed.Scheduling.csproj" />
-		<ProjectReference Include="..\Roadbed.Sdk.NationalWeatherService\Roadbed.Sdk.NationalWeatherService.csproj" />
 	</ItemGroup>
 
 	<ItemGroup>
