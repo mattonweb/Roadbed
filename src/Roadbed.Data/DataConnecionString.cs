@@ -134,6 +134,10 @@ public class DataConnecionString
             {
                 result = this.CreateConnectionStringForPostgresql();
             }
+            else if (this.ConnectionStringType == DataConnectionStringType.MySQL)
+            {
+                result = this.CreateConnectionStringForMySql();
+            }
         }
         else
         {
@@ -171,6 +175,29 @@ public class DataConnecionString
             Username={{this.Username}};
             Password={{this.Password}};
             Timeout={{this.TimeoutInSeconds}};
+            """;
+
+        return template;
+    }
+
+    /// <summary>
+    /// Creates a connection string for a MySQL database.
+    /// </summary>
+    /// <returns>Connection string used to access a database.</returns>
+    /// <remarks>
+    /// AutoEnlist=true causes MySqlConnector to automatically enlist the connection
+    /// in the ambient <see cref="System.Transactions.Transaction"/>. This is the default for
+    /// MySqlConnector, but is set explicitly here to signal intent.
+    /// </remarks>
+    private string CreateConnectionStringForMySql()
+    {
+        string template = $$"""
+            Server={{this.ServerName}};
+            Database={{this.DatabaseSource}};
+            User ID={{this.Username}};
+            Password={{this.Password}};
+            Connection Timeout={{this.TimeoutInSeconds}};
+            AutoEnlist=true;
             """;
 
         return template;

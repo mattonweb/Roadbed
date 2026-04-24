@@ -57,6 +57,7 @@ For detailed documentation on each package:
 - [Roadbed.Crud](/src/Roadbed.Crud/README.md) - Repository/Entity patterns
 - [Roadbed.Data](/src/Roadbed.Data/README.md) - Data access abstractions
 - [Roadbed.Data.Dapper](/src/Roadbed.Data.Dapper/README.md) - Dapper configuration
+- [Roadbed.Data.MySql](/src/Roadbed.Data.MySql/README.md) - MySQL data access
 - [Roadbed.Data.Sqlite](/src/Roadbed.Data.Sqlite/README.md) - SQLite data access
 - [Roadbed.IO](/src/Roadbed.IO/README.md) - File I/O and CSV operations
 - [Roadbed.Messaging](/src/Roadbed.Messaging/README.md) - Message envelopes

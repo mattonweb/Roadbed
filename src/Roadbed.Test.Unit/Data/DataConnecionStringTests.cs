@@ -381,6 +381,256 @@ public class DataConnecionStringTests
     }
 
     /// <summary>
+    /// Unit test to verify that MySQL connection string contains Server parameter.
+    /// </summary>
+    [TestMethod]
+    public void ConnectionString_MySqlType_ContainsServer()
+    {
+        // Arrange (Given)
+        var connectionString = new DataConnecionString(DataConnectionStringType.MySQL)
+        {
+            ServerName = "db.example.com",
+            DatabaseSource = "mydb",
+            Username = "admin",
+            Password = "secret",
+        };
+
+        // Act (When)
+        string result = connectionString.ConnectionString;
+
+        // Assert (Then)
+        Assert.Contains(
+            "Server=db.example.com",
+            result,
+            "MySQL connection string should contain Server parameter with ServerName value.");
+    }
+
+    /// <summary>
+    /// Unit test to verify that MySQL connection string contains Database parameter.
+    /// </summary>
+    [TestMethod]
+    public void ConnectionString_MySqlType_ContainsDatabase()
+    {
+        // Arrange (Given)
+        var connectionString = new DataConnecionString(DataConnectionStringType.MySQL)
+        {
+            ServerName = "localhost",
+            DatabaseSource = "weatherdb",
+            Username = "admin",
+            Password = "secret",
+        };
+
+        // Act (When)
+        string result = connectionString.ConnectionString;
+
+        // Assert (Then)
+        Assert.Contains(
+            "Database=weatherdb",
+            result,
+            "MySQL connection string should contain Database parameter with DatabaseSource value.");
+    }
+
+    /// <summary>
+    /// Unit test to verify that MySQL connection string contains User ID parameter.
+    /// </summary>
+    [TestMethod]
+    public void ConnectionString_MySqlType_ContainsUserId()
+    {
+        // Arrange (Given)
+        var connectionString = new DataConnecionString(DataConnectionStringType.MySQL)
+        {
+            ServerName = "localhost",
+            DatabaseSource = "mydb",
+            Username = "roadbed_user",
+            Password = "secret",
+        };
+
+        // Act (When)
+        string result = connectionString.ConnectionString;
+
+        // Assert (Then)
+        Assert.Contains(
+            "User ID=roadbed_user",
+            result,
+            "MySQL connection string should contain User ID parameter.");
+    }
+
+    /// <summary>
+    /// Unit test to verify that MySQL connection string contains Password parameter.
+    /// </summary>
+    [TestMethod]
+    public void ConnectionString_MySqlType_ContainsPassword()
+    {
+        // Arrange (Given)
+        var connectionString = new DataConnecionString(DataConnectionStringType.MySQL)
+        {
+            ServerName = "localhost",
+            DatabaseSource = "mydb",
+            Username = "admin",
+            Password = "P@ssw0rd!",
+        };
+
+        // Act (When)
+        string result = connectionString.ConnectionString;
+
+        // Assert (Then)
+        Assert.Contains(
+            "Password=P@ssw0rd!",
+            result,
+            "MySQL connection string should contain Password parameter.");
+    }
+
+    /// <summary>
+    /// Unit test to verify that MySQL connection string contains Connection Timeout parameter.
+    /// </summary>
+    [TestMethod]
+    public void ConnectionString_MySqlType_ContainsTimeout()
+    {
+        // Arrange (Given)
+        var connectionString = new DataConnecionString(DataConnectionStringType.MySQL)
+        {
+            ServerName = "localhost",
+            DatabaseSource = "mydb",
+            Username = "admin",
+            Password = "secret",
+            TimeoutInSeconds = 45,
+        };
+
+        // Act (When)
+        string result = connectionString.ConnectionString;
+
+        // Assert (Then)
+        Assert.Contains(
+            "Connection Timeout=45",
+            result,
+            "MySQL connection string should contain Connection Timeout parameter with TimeoutInSeconds value.");
+    }
+
+    /// <summary>
+    /// Unit test to verify that MySQL connection string uses default timeout when not set.
+    /// </summary>
+    [TestMethod]
+    public void ConnectionString_MySqlTypeDefaultTimeout_ContainsDefaultTimeout()
+    {
+        // Arrange (Given)
+        var connectionString = new DataConnecionString(DataConnectionStringType.MySQL)
+        {
+            ServerName = "localhost",
+            DatabaseSource = "mydb",
+            Username = "admin",
+            Password = "secret",
+        };
+
+        // Act (When)
+        string result = connectionString.ConnectionString;
+
+        // Assert (Then)
+        Assert.Contains(
+            "Connection Timeout=20",
+            result,
+            "MySQL connection string should contain default Connection Timeout of 20 seconds.");
+    }
+
+    /// <summary>
+    /// Unit test to verify that MySQL connection string contains AutoEnlist for
+    /// System.Transactions.Transaction participation.
+    /// </summary>
+    [TestMethod]
+    public void ConnectionString_MySqlType_ContainsAutoEnlist()
+    {
+        // Arrange (Given)
+        var connectionString = new DataConnecionString(DataConnectionStringType.MySQL)
+        {
+            ServerName = "localhost",
+            DatabaseSource = "mydb",
+            Username = "admin",
+            Password = "secret",
+        };
+
+        // Act (When)
+        string result = connectionString.ConnectionString;
+
+        // Assert (Then)
+        Assert.Contains(
+            "AutoEnlist=true",
+            result,
+            "MySQL connection string should contain AutoEnlist=true to support ambient TransactionScope.");
+    }
+
+    /// <summary>
+    /// Unit test to verify that MySQL type with original string returns original string.
+    /// </summary>
+    [TestMethod]
+    public void ConnectionString_MySqlTypeWithOriginalString_ReturnsOriginalString()
+    {
+        // Arrange (Given)
+        string originalString = "Server=custom.server.com;Port=3307;Database=proddb;User ID=app;Password=secret;Connection Timeout=30";
+        var connectionString = new DataConnecionString(
+            DataConnectionStringType.MySQL,
+            originalString);
+
+        // Act (When)
+        string result = connectionString.ConnectionString;
+
+        // Assert (Then)
+        Assert.AreEqual(
+            originalString,
+            result,
+            "ConnectionString should return the original string when provided, bypassing the template.");
+    }
+
+    /// <summary>
+    /// Unit test to verify that MySQL connection string can be accessed multiple times consistently.
+    /// </summary>
+    [TestMethod]
+    public void ConnectionString_MySqlTypeAccessMultipleTimes_ReturnsConsistentValue()
+    {
+        // Arrange (Given)
+        var connectionString = new DataConnecionString(DataConnectionStringType.MySQL)
+        {
+            ServerName = "localhost",
+            DatabaseSource = "mydb",
+            Username = "admin",
+            Password = "secret",
+        };
+
+        // Act (When)
+        string result1 = connectionString.ConnectionString;
+        string result2 = connectionString.ConnectionString;
+
+        // Assert (Then)
+        Assert.AreEqual(
+            result1,
+            result2,
+            "MySQL ConnectionString should return consistent value on multiple accesses.");
+    }
+
+    /// <summary>
+    /// Unit test to verify that MySQL empty original string falls through to template.
+    /// </summary>
+    [TestMethod]
+    public void Constructor_MySqlTypeEmptyConnectionString_UsesTemplate()
+    {
+        // Arrange (Given)
+        var connectionString = new DataConnecionString(DataConnectionStringType.MySQL, string.Empty)
+        {
+            ServerName = "localhost",
+            DatabaseSource = "mydb",
+            Username = "admin",
+            Password = "secret",
+        };
+
+        // Act (When)
+        string result = connectionString.ConnectionString;
+
+        // Assert (Then)
+        Assert.Contains(
+            "Server=localhost",
+            result,
+            "MySQL connection string should use template when empty original string is provided.");
+    }
+
+    /// <summary>
     /// Unit test to verify that PostgreSQL connection string contains Host parameter.
     /// </summary>
     [TestMethod]

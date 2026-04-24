@@ -24,4 +24,9 @@ public enum DataConnectionStringType
     /// PostgreSQL Database Connection Type.
     /// </summary>
     PostgreSQL = 3,
+
+    /// <summary>
+    /// MySQL Database Connection Type.
+    /// </summary>
+    MySQL = 4,
 }
