@@ -162,6 +162,13 @@ public class InstallScheduling : IServiceCollectionInstaller
                     ex);
             }
 
+            // Skip jobs that are disabled via SchedulingJobOptions. The job is entirely
+            // absent from Quartz — no job registration, no trigger, not invocable manually.
+            if (!job.IsEnabled)
+            {
+                continue;
+            }
+
             var schedule = job.Schedule;
             var jobKey = new JobKey(job.Name, schedule.GroupName);
 

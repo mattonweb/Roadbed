@@ -32,6 +32,16 @@ public interface ISchedulingJob : IJob
     /// </summary>
     SchedulingSchedule Schedule { get; }
 
+    /// <summary>
+    /// Gets a value indicating whether the job should be registered with Quartz.
+    /// </summary>
+    /// <remarks>
+    /// When <see langword="false"/>, <see cref="Installers.InstallScheduling"/>
+    /// skips both the job registration and its trigger — the job is entirely
+    /// absent from the scheduler. Defaults to <see langword="true"/>.
+    /// </remarks>
+    bool IsEnabled => true;
+
     #endregion Public Properties
 
     #region Public Methods

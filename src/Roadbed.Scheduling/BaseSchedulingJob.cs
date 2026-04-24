@@ -1,6 +1,7 @@
 ﻿namespace Roadbed.Scheduling;
 
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -26,6 +27,7 @@ public abstract class BaseSchedulingJob<T>
     private readonly string? _description;
     private readonly string? _name;
     private readonly SchedulingSchedule? _schedule;
+    private readonly bool _isEnabled = true;
     private IJobExecutionContext? _currentContext;
 
     #endregion Private Fields
@@ -102,6 +104,81 @@ public abstract class BaseSchedulingJob<T>
         this._schedule = new SchedulingSchedule();
     }
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="BaseSchedulingJob{T}"/> class with a default
+    /// schedule that may be overridden or disabled by <see cref="SchedulingJobOptions"/>.
+    /// </summary>
+    /// <param name="name">The unique name for this job. Used as the lookup key into <see cref="SchedulingJobOptions.Features"/>.</param>
+    /// <param name="description">A description of what this job does.</param>
+    /// <param name="defaultSchedule">The fallback schedule used when no matching options entry is present or the entry does not override the cron expression.</param>
+    /// <param name="options">Options POCO supplied by the hosting application. Must be registered in DI as a singleton.</param>
+    /// <param name="logger">Represents a type used to perform logging.</param>
+    /// <remarks>
+    /// Resolution rules:
+    /// <list type="bullet">
+    /// <item><description>Missing entry in <see cref="SchedulingJobOptions.Features"/> → use <paramref name="defaultSchedule"/>, enabled.</description></item>
+    /// <item><description>Entry with <see cref="SchedulingJobFeature.Enabled"/> = <see langword="false"/> → job is disabled and not registered.</description></item>
+    /// <item><description>Entry with a non-empty <see cref="SchedulingJobFeature.CronExpression"/> → use that cron expression.</description></item>
+    /// <item><description>Entry with <see cref="SchedulingJobFeature.Enabled"/> = <see langword="true"/> and no cron → use <paramref name="defaultSchedule"/>.</description></item>
+    /// </list>
+    /// </remarks>
+    /// <exception cref="ArgumentException">Thrown when name or description is null or whitespace.</exception>
+    /// <exception cref="ArgumentNullException">Thrown when defaultSchedule, options, or logger is null.</exception>
+    protected BaseSchedulingJob(
+        string name,
+        string description,
+        SchedulingSchedule defaultSchedule,
+        SchedulingJobOptions options,
+        ILogger logger)
+        : base(logger)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        ArgumentNullException.ThrowIfNull(defaultSchedule);
+        ArgumentNullException.ThrowIfNull(options);
+
+        this._name = name;
+        this._description = description;
+        (this._isEnabled, this._schedule) = ResolveFromOptions(name, options, defaultSchedule);
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="BaseSchedulingJob{T}"/> class whose schedule
+    /// must come from <see cref="SchedulingJobOptions"/>. No default schedule is supplied.
+    /// </summary>
+    /// <param name="name">The unique name for this job. Used as the lookup key into <see cref="SchedulingJobOptions.Features"/>.</param>
+    /// <param name="description">A description of what this job does.</param>
+    /// <param name="options">Options POCO supplied by the hosting application. Must contain an entry for <paramref name="name"/>.</param>
+    /// <param name="logger">Represents a type used to perform logging.</param>
+    /// <remarks>
+    /// Use this overload when the schedule is deployment-specific (e.g., differs per security zone)
+    /// and there is no sensible universal default. Resolution rules:
+    /// <list type="bullet">
+    /// <item><description>Missing entry in <see cref="SchedulingJobOptions.Features"/> → throws <see cref="InvalidOperationException"/>.</description></item>
+    /// <item><description>Entry with <see cref="SchedulingJobFeature.Enabled"/> = <see langword="false"/> → job is disabled and not registered.</description></item>
+    /// <item><description>Entry with <see cref="SchedulingJobFeature.Enabled"/> = <see langword="true"/> and no cron → throws <see cref="InvalidOperationException"/>.</description></item>
+    /// <item><description>Entry with a non-empty <see cref="SchedulingJobFeature.CronExpression"/> → use that cron expression.</description></item>
+    /// </list>
+    /// </remarks>
+    /// <exception cref="ArgumentException">Thrown when name or description is null or whitespace.</exception>
+    /// <exception cref="ArgumentNullException">Thrown when options or logger is null.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when the options entry is missing or enabled without a cron expression.</exception>
+    protected BaseSchedulingJob(
+        string name,
+        string description,
+        SchedulingJobOptions options,
+        ILogger logger)
+        : base(logger)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        ArgumentNullException.ThrowIfNull(options);
+
+        this._name = name;
+        this._description = description;
+        (this._isEnabled, this._schedule) = ResolveFromOptionsStrict(name, options);
+    }
+
     #endregion Protected Constructors
 
     #region Public Properties
@@ -150,6 +227,9 @@ public abstract class BaseSchedulingJob<T>
                 $"Schedule must be provided either through constructor or by overriding the Schedule property in {this.GetType().Name}.");
         }
     }
+
+    /// <inheritdoc/>
+    public virtual bool IsEnabled => this._isEnabled;
 
     #endregion Public Properties
 
@@ -215,4 +295,69 @@ public abstract class BaseSchedulingJob<T>
     public abstract Task ExecuteAsync(CancellationToken cancellationToken);
 
     #endregion Public Methods
+
+    #region Private Methods
+
+    /// <summary>
+    /// Resolves the <see cref="IsEnabled"/> and <see cref="Schedule"/> values from
+    /// <paramref name="options"/>, falling back to <paramref name="defaultSchedule"/> when no
+    /// override is supplied.
+    /// </summary>
+    private static (bool isEnabled, SchedulingSchedule schedule) ResolveFromOptions(
+        string name,
+        SchedulingJobOptions options,
+        SchedulingSchedule defaultSchedule)
+    {
+        var features = options.Features ?? new Dictionary<string, SchedulingJobFeature>();
+
+        if (!features.TryGetValue(name, out var feature) || feature is null)
+        {
+            return (true, defaultSchedule);
+        }
+
+        if (!feature.Enabled)
+        {
+            return (false, new SchedulingSchedule());
+        }
+
+        if (!string.IsNullOrWhiteSpace(feature.CronExpression))
+        {
+            return (true, new SchedulingSchedule(feature.CronExpression));
+        }
+
+        return (true, defaultSchedule);
+    }
+
+    /// <summary>
+    /// Resolves the <see cref="IsEnabled"/> and <see cref="Schedule"/> values from
+    /// <paramref name="options"/>. Throws when the options entry is missing or does not
+    /// supply a cron expression for an enabled job.
+    /// </summary>
+    private static (bool isEnabled, SchedulingSchedule schedule) ResolveFromOptionsStrict(
+        string name,
+        SchedulingJobOptions options)
+    {
+        var features = options.Features ?? new Dictionary<string, SchedulingJobFeature>();
+
+        if (!features.TryGetValue(name, out var feature) || feature is null)
+        {
+            throw new InvalidOperationException(
+                $"Job '{name}' requires SchedulingJobOptions.Features[\"{name}\"] because no default schedule was supplied.");
+        }
+
+        if (!feature.Enabled)
+        {
+            return (false, new SchedulingSchedule());
+        }
+
+        if (string.IsNullOrWhiteSpace(feature.CronExpression))
+        {
+            throw new InvalidOperationException(
+                $"Job '{name}' requires SchedulingJobOptions.Features[\"{name}\"].CronExpression because no default schedule was supplied.");
+        }
+
+        return (true, new SchedulingSchedule(feature.CronExpression));
+    }
+
+    #endregion Private Methods
 }

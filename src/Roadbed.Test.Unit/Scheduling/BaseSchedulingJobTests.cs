@@ -1,6 +1,7 @@
 ﻿namespace Roadbed.Test.Unit.Scheduling;
 
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -568,6 +569,435 @@ public class BaseSchedulingJobTests
 
     #endregion Integration Tests
 
+    #region Options Constructor Tests - With Default Schedule
+
+    /// <summary>
+    /// Unit test to verify that the options + default constructor uses the default schedule
+    /// when the options have no entry for the job's name.
+    /// </summary>
+    [TestMethod]
+    public void Constructor_OptionsWithDefault_MissingEntry_UsesDefaultScheduleAndEnabled()
+    {
+        // Arrange (Given)
+        var logger = new TestLogger<OptionsWithDefaultJob>();
+        var defaultSchedule = new SchedulingSchedule(TimeSpan.FromMinutes(5));
+        var options = new SchedulingJobOptions();
+
+        // Act (When)
+        var job = new OptionsWithDefaultJob(logger, "MissingJob", "Desc", defaultSchedule, options);
+
+        // Assert (Then)
+        Assert.IsTrue(
+            job.IsEnabled,
+            "IsEnabled should default to true when no options entry exists.");
+        Assert.AreSame(
+            defaultSchedule,
+            job.Schedule,
+            "Schedule should fall back to the default when no options entry exists.");
+    }
+
+    /// <summary>
+    /// Unit test to verify that the options + default constructor disables the job when
+    /// the matching options entry has Enabled=false.
+    /// </summary>
+    [TestMethod]
+    public void Constructor_OptionsWithDefault_EntryDisabled_IsEnabledFalse()
+    {
+        // Arrange (Given)
+        var logger = new TestLogger<OptionsWithDefaultJob>();
+        var defaultSchedule = new SchedulingSchedule(TimeSpan.FromMinutes(5));
+        var options = new SchedulingJobOptions
+        {
+            Features = new Dictionary<string, SchedulingJobFeature>
+            {
+                ["GatedJob"] = new SchedulingJobFeature { Enabled = false },
+            },
+        };
+
+        // Act (When)
+        var job = new OptionsWithDefaultJob(logger, "GatedJob", "Desc", defaultSchedule, options);
+
+        // Assert (Then)
+        Assert.IsFalse(
+            job.IsEnabled,
+            "IsEnabled should be false when the options entry is disabled.");
+    }
+
+    /// <summary>
+    /// Unit test to verify that the options + default constructor uses the cron expression
+    /// from the options entry when one is supplied.
+    /// </summary>
+    [TestMethod]
+    public void Constructor_OptionsWithDefault_EntryHasCron_UsesCronFromOptions()
+    {
+        // Arrange (Given)
+        var logger = new TestLogger<OptionsWithDefaultJob>();
+        var defaultSchedule = new SchedulingSchedule(TimeSpan.FromMinutes(5));
+        var options = new SchedulingJobOptions
+        {
+            Features = new Dictionary<string, SchedulingJobFeature>
+            {
+                ["GatedJob"] = new SchedulingJobFeature
+                {
+                    Enabled = true,
+                    CronExpression = "0 0 * * * ?",
+                },
+            },
+        };
+
+        // Act (When)
+        var job = new OptionsWithDefaultJob(logger, "GatedJob", "Desc", defaultSchedule, options);
+
+        // Assert (Then)
+        Assert.IsTrue(
+            job.IsEnabled,
+            "IsEnabled should be true when the options entry is enabled.");
+        Assert.AreEqual(
+            SchedulingScheduleType.Cron,
+            job.Schedule.ScheduleType,
+            "Schedule should be cron-based when a cron expression is supplied.");
+        Assert.AreEqual(
+            "0 0 * * * ?",
+            job.Schedule.CronExpression,
+            "Schedule cron expression should match the options entry.");
+    }
+
+    /// <summary>
+    /// Unit test to verify that the options + default constructor falls back to the default
+    /// schedule when the options entry is enabled but provides no cron expression.
+    /// </summary>
+    [TestMethod]
+    public void Constructor_OptionsWithDefault_EntryEnabledNoCron_UsesDefaultSchedule()
+    {
+        // Arrange (Given)
+        var logger = new TestLogger<OptionsWithDefaultJob>();
+        var defaultSchedule = new SchedulingSchedule(TimeSpan.FromMinutes(5));
+        var options = new SchedulingJobOptions
+        {
+            Features = new Dictionary<string, SchedulingJobFeature>
+            {
+                ["GatedJob"] = new SchedulingJobFeature
+                {
+                    Enabled = true,
+                    CronExpression = null,
+                },
+            },
+        };
+
+        // Act (When)
+        var job = new OptionsWithDefaultJob(logger, "GatedJob", "Desc", defaultSchedule, options);
+
+        // Assert (Then)
+        Assert.IsTrue(
+            job.IsEnabled,
+            "IsEnabled should be true when the options entry is enabled.");
+        Assert.AreSame(
+            defaultSchedule,
+            job.Schedule,
+            "Schedule should fall back to the default when the options entry has no cron expression.");
+    }
+
+    /// <summary>
+    /// Unit test to verify that the options + default constructor throws when options is null.
+    /// </summary>
+    [TestMethod]
+    public void Constructor_OptionsWithDefault_NullOptions_ThrowsArgumentNullException()
+    {
+        // Arrange (Given)
+        var logger = new TestLogger<OptionsWithDefaultJob>();
+        var defaultSchedule = new SchedulingSchedule(TimeSpan.FromMinutes(5));
+        SchedulingJobOptions? nullOptions = null;
+        bool exceptionThrown = false;
+
+        // Act (When)
+        try
+        {
+            var job = new OptionsWithDefaultJob(logger, "Job", "Desc", defaultSchedule, nullOptions!);
+        }
+        catch (ArgumentNullException)
+        {
+            exceptionThrown = true;
+        }
+
+        // Assert (Then)
+        Assert.IsTrue(
+            exceptionThrown,
+            "Constructor should throw ArgumentNullException when options is null.");
+    }
+
+    /// <summary>
+    /// Unit test to verify that the options + default constructor throws when defaultSchedule is null.
+    /// </summary>
+    [TestMethod]
+    public void Constructor_OptionsWithDefault_NullDefaultSchedule_ThrowsArgumentNullException()
+    {
+        // Arrange (Given)
+        var logger = new TestLogger<OptionsWithDefaultJob>();
+        SchedulingSchedule? nullSchedule = null;
+        var options = new SchedulingJobOptions();
+        bool exceptionThrown = false;
+
+        // Act (When)
+        try
+        {
+            var job = new OptionsWithDefaultJob(logger, "Job", "Desc", nullSchedule!, options);
+        }
+        catch (ArgumentNullException)
+        {
+            exceptionThrown = true;
+        }
+
+        // Assert (Then)
+        Assert.IsTrue(
+            exceptionThrown,
+            "Constructor should throw ArgumentNullException when defaultSchedule is null.");
+    }
+
+    #endregion Options Constructor Tests - With Default Schedule
+
+    #region Options Constructor Tests - Strict (No Default Schedule)
+
+    /// <summary>
+    /// Unit test to verify that the strict options constructor uses the cron expression
+    /// from the options entry.
+    /// </summary>
+    [TestMethod]
+    public void Constructor_OptionsStrict_EntryWithCron_UsesCronFromOptions()
+    {
+        // Arrange (Given)
+        var logger = new TestLogger<OptionsStrictJob>();
+        var options = new SchedulingJobOptions
+        {
+            Features = new Dictionary<string, SchedulingJobFeature>
+            {
+                ["GatedJob"] = new SchedulingJobFeature
+                {
+                    Enabled = true,
+                    CronExpression = "0 30 * * * ?",
+                },
+            },
+        };
+
+        // Act (When)
+        var job = new OptionsStrictJob(logger, "GatedJob", "Desc", options);
+
+        // Assert (Then)
+        Assert.IsTrue(
+            job.IsEnabled,
+            "IsEnabled should be true when the options entry is enabled.");
+        Assert.AreEqual(
+            "0 30 * * * ?",
+            job.Schedule.CronExpression,
+            "Schedule cron expression should match the options entry.");
+    }
+
+    /// <summary>
+    /// Unit test to verify that the strict options constructor disables the job when
+    /// the matching options entry has Enabled=false.
+    /// </summary>
+    [TestMethod]
+    public void Constructor_OptionsStrict_EntryDisabled_IsEnabledFalse()
+    {
+        // Arrange (Given)
+        var logger = new TestLogger<OptionsStrictJob>();
+        var options = new SchedulingJobOptions
+        {
+            Features = new Dictionary<string, SchedulingJobFeature>
+            {
+                ["GatedJob"] = new SchedulingJobFeature { Enabled = false },
+            },
+        };
+
+        // Act (When)
+        var job = new OptionsStrictJob(logger, "GatedJob", "Desc", options);
+
+        // Assert (Then)
+        Assert.IsFalse(
+            job.IsEnabled,
+            "IsEnabled should be false when the options entry is disabled.");
+    }
+
+    /// <summary>
+    /// Unit test to verify that the strict options constructor throws when the options
+    /// entry is missing.
+    /// </summary>
+    [TestMethod]
+    public void Constructor_OptionsStrict_MissingEntry_ThrowsInvalidOperationException()
+    {
+        // Arrange (Given)
+        var logger = new TestLogger<OptionsStrictJob>();
+        var options = new SchedulingJobOptions();
+        bool exceptionThrown = false;
+        string? exceptionMessage = null;
+
+        // Act (When)
+        try
+        {
+            var job = new OptionsStrictJob(logger, "MissingJob", "Desc", options);
+        }
+        catch (InvalidOperationException ex)
+        {
+            exceptionThrown = true;
+            exceptionMessage = ex.Message;
+        }
+
+        // Assert (Then)
+        Assert.IsTrue(
+            exceptionThrown,
+            "Strict constructor should throw InvalidOperationException when the options entry is missing.");
+        StringAssert.Contains(
+            exceptionMessage!,
+            "MissingJob",
+            "Exception message should include the job name.");
+        StringAssert.Contains(
+            exceptionMessage!,
+            "no default schedule",
+            "Exception message should explain that no default schedule was supplied.");
+    }
+
+    /// <summary>
+    /// Unit test to verify that the strict options constructor throws when the options
+    /// entry is enabled but has no cron expression.
+    /// </summary>
+    [TestMethod]
+    public void Constructor_OptionsStrict_EnabledWithoutCron_ThrowsInvalidOperationException()
+    {
+        // Arrange (Given)
+        var logger = new TestLogger<OptionsStrictJob>();
+        var options = new SchedulingJobOptions
+        {
+            Features = new Dictionary<string, SchedulingJobFeature>
+            {
+                ["GatedJob"] = new SchedulingJobFeature
+                {
+                    Enabled = true,
+                    CronExpression = null,
+                },
+            },
+        };
+        bool exceptionThrown = false;
+        string? exceptionMessage = null;
+
+        // Act (When)
+        try
+        {
+            var job = new OptionsStrictJob(logger, "GatedJob", "Desc", options);
+        }
+        catch (InvalidOperationException ex)
+        {
+            exceptionThrown = true;
+            exceptionMessage = ex.Message;
+        }
+
+        // Assert (Then)
+        Assert.IsTrue(
+            exceptionThrown,
+            "Strict constructor should throw InvalidOperationException when the entry has no cron expression.");
+        StringAssert.Contains(
+            exceptionMessage!,
+            "CronExpression",
+            "Exception message should name the missing CronExpression property.");
+    }
+
+    /// <summary>
+    /// Unit test to verify that the strict options constructor throws when the cron
+    /// expression is whitespace.
+    /// </summary>
+    [TestMethod]
+    public void Constructor_OptionsStrict_WhitespaceCron_ThrowsInvalidOperationException()
+    {
+        // Arrange (Given)
+        var logger = new TestLogger<OptionsStrictJob>();
+        var options = new SchedulingJobOptions
+        {
+            Features = new Dictionary<string, SchedulingJobFeature>
+            {
+                ["GatedJob"] = new SchedulingJobFeature
+                {
+                    Enabled = true,
+                    CronExpression = "   ",
+                },
+            },
+        };
+        bool exceptionThrown = false;
+
+        // Act (When)
+        try
+        {
+            var job = new OptionsStrictJob(logger, "GatedJob", "Desc", options);
+        }
+        catch (InvalidOperationException)
+        {
+            exceptionThrown = true;
+        }
+
+        // Assert (Then)
+        Assert.IsTrue(
+            exceptionThrown,
+            "Strict constructor should throw InvalidOperationException when the cron expression is whitespace.");
+    }
+
+    /// <summary>
+    /// Unit test to verify that the strict options constructor throws when options is null.
+    /// </summary>
+    [TestMethod]
+    public void Constructor_OptionsStrict_NullOptions_ThrowsArgumentNullException()
+    {
+        // Arrange (Given)
+        var logger = new TestLogger<OptionsStrictJob>();
+        SchedulingJobOptions? nullOptions = null;
+        bool exceptionThrown = false;
+
+        // Act (When)
+        try
+        {
+            var job = new OptionsStrictJob(logger, "Job", "Desc", nullOptions!);
+        }
+        catch (ArgumentNullException)
+        {
+            exceptionThrown = true;
+        }
+
+        // Assert (Then)
+        Assert.IsTrue(
+            exceptionThrown,
+            "Strict constructor should throw ArgumentNullException when options is null.");
+    }
+
+    #endregion Options Constructor Tests - Strict (No Default Schedule)
+
+    #region IsEnabled Tests
+
+    /// <summary>
+    /// Unit test to verify that IsEnabled defaults to true for jobs using the pre-existing
+    /// constructor patterns.
+    /// </summary>
+    [TestMethod]
+    public void IsEnabled_DefaultForExistingConstructors_IsTrue()
+    {
+        // Arrange (Given)
+        var logger1 = new TestLogger<PropertyOverrideJob>();
+        var logger2 = new TestLogger<ConstructorJob>();
+
+        // Act (When)
+        var propertyJob = new PropertyOverrideJob(logger1);
+        var constructorJob = new ConstructorJob(
+            logger2,
+            "TestJob",
+            "Test description",
+            new SchedulingSchedule(TimeSpan.FromMinutes(5)));
+
+        // Assert (Then)
+        Assert.IsTrue(
+            propertyJob.IsEnabled,
+            "IsEnabled should default to true for property-override jobs.");
+        Assert.IsTrue(
+            constructorJob.IsEnabled,
+            "IsEnabled should default to true for constructor-pattern jobs.");
+    }
+
+    #endregion IsEnabled Tests
+
     #endregion Public Methods
 
     #region Test Helper Classes
@@ -638,6 +1068,47 @@ public class BaseSchedulingJobTests
     {
         public IncompleteJob(ILogger<IncompleteJob> logger)
             : base(logger)
+        {
+        }
+
+        public override Task ExecuteAsync(CancellationToken cancellationToken)
+        {
+            return Task.CompletedTask;
+        }
+    }
+
+    /// <summary>
+    /// Job using the options + default-schedule constructor overload.
+    /// </summary>
+    private class OptionsWithDefaultJob : BaseSchedulingJob<OptionsWithDefaultJob>
+    {
+        public OptionsWithDefaultJob(
+            ILogger<OptionsWithDefaultJob> logger,
+            string name,
+            string description,
+            SchedulingSchedule defaultSchedule,
+            SchedulingJobOptions options)
+            : base(name, description, defaultSchedule, options, logger)
+        {
+        }
+
+        public override Task ExecuteAsync(CancellationToken cancellationToken)
+        {
+            return Task.CompletedTask;
+        }
+    }
+
+    /// <summary>
+    /// Job using the strict options constructor overload (no default schedule).
+    /// </summary>
+    private class OptionsStrictJob : BaseSchedulingJob<OptionsStrictJob>
+    {
+        public OptionsStrictJob(
+            ILogger<OptionsStrictJob> logger,
+            string name,
+            string description,
+            SchedulingJobOptions options)
+            : base(name, description, options, logger)
         {
         }
 

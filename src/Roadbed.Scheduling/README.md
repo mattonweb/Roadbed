@@ -410,6 +410,135 @@ When using the configuration-driven approach, add settings to your `appsettings.
 }
 ```
 
+### Method 3: Options-Gated Schedule (Gate or Override via `SchedulingJobOptions`)
+
+Use this approach when the hosting application needs to **disable specific jobs** or **override their cron expression** without recompiling — for example, to run different schedules per deployment environment or to hide a job from specific security zones.
+
+`Roadbed.Scheduling` never reads `appsettings.json` directly. Instead, your application populates a `SchedulingJobOptions` POCO from its own configuration and registers it as a singleton. Jobs opt in to gating by taking `SchedulingJobOptions` in their constructor and passing it to one of two new base-class constructors.
+
+**Two overloads are available:**
+
+- `base(name, description, defaultSchedule, options, logger)` — has a hardcoded fallback. Missing options entry uses the default.
+- `base(name, description, options, logger)` — no default. Missing options entry (or enabled entry without a cron) throws at startup.
+
+Both overloads respect `Enabled = false` the same way: the job is skipped during Quartz registration entirely.
+
+**Application wiring:**
+```csharp
+// Program.cs — owned by the application, not by Roadbed.Scheduling
+var jobOptions = new SchedulingJobOptions
+{
+    Features = new Dictionary<string, SchedulingJobFeature>
+    {
+        [FooJob.JobName] = new SchedulingJobFeature
+        {
+            Enabled = builder.Configuration.GetValue<bool>("Jobs:FooJob:Enabled", true),
+            CronExpression = builder.Configuration["Jobs:FooJob:Cron"],
+            Arguments = new Dictionary<string, string>
+            {
+                ["zone"] = builder.Configuration["SecurityZone"] ?? "default",
+            },
+        },
+    },
+};
+builder.Services.AddSingleton(jobOptions);
+
+builder.Services.InstallModulesInAppDomain(builder.Configuration);
+```
+```json
+// appsettings.json — per-zone or per-deployment
+{
+  "SecurityZone": "public",
+  "Jobs": {
+    "FooJob": {
+      "Enabled": true,
+      "Cron": "0 */5 * * * ?"
+    }
+  }
+}
+```
+
+**Job with a fallback default (Option A — lenient):**
+```csharp
+public class FooJob : BaseSchedulingJob<FooJob>
+{
+    public const string JobName = "FooJob";
+
+    public FooJob(
+        ILogger<FooJob> logger,
+        SchedulingJobOptions options,
+        IFooService fooService)
+        : base(
+            name: JobName,
+            description: "Processes foo items",
+            defaultSchedule: new SchedulingSchedule(TimeSpan.FromMinutes(30)),
+            options: options,
+            logger: logger)
+    {
+        this._fooService = fooService;
+    }
+
+    public override async Task ExecuteAsync(CancellationToken cancellationToken)
+    {
+        await this._fooService.ProcessFooItemsAsync(cancellationToken);
+    }
+}
+```
+
+If no `FooJob` entry exists in `SchedulingJobOptions.Features`, the job runs every 30 minutes. If an entry sets `Cron`, that cron replaces the 30-minute default. If an entry sets `Enabled = false`, the job is entirely absent from Quartz.
+
+**Job without a default (Option B — strict, config-required):**
+```csharp
+public class ZonedJob : BaseSchedulingJob<ZonedJob>
+{
+    public const string JobName = "ZonedJob";
+
+    public ZonedJob(
+        ILogger<ZonedJob> logger,
+        SchedulingJobOptions options)
+        : base(
+            name: JobName,
+            description: "Zone-specific job; schedule must come from SchedulingJobOptions",
+            options: options,
+            logger: logger)
+    {
+    }
+
+    public override Task ExecuteAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+}
+```
+
+Startup **fails fast** with an `InvalidOperationException` if:
+
+- no `ZonedJob` entry exists in `SchedulingJobOptions.Features`, or
+- an entry exists with `Enabled = true` but no `CronExpression`.
+
+Use this overload when forgetting to configure the job in a given zone should be treated as a deployment error, not a silent fallback.
+
+### Resolution Matrix
+
+| Situation                                | With `defaultSchedule`                  | Without `defaultSchedule` (strict)           |
+| ---------------------------------------- | --------------------------------------- | -------------------------------------------- |
+| Entry missing from `Features`            | Use default schedule, `IsEnabled=true`  | **Throws `InvalidOperationException`**       |
+| Entry with `Enabled = false`             | Skipped (no Quartz registration)        | Skipped (no Quartz registration)             |
+| Entry with `Enabled = true`, no cron     | Use default schedule                    | **Throws `InvalidOperationException`**       |
+| Entry with `Enabled = true` + cron       | Use cron from entry                     | Use cron from entry                          |
+
+### Extensibility: the `Arguments` Bag
+
+`SchedulingJobFeature.Arguments` is a free-form `IReadOnlyDictionary<string, string>` that the framework never reads. Jobs can pull whichever keys they care about — for example, a "zone" marker, a batch size, or a feature sub-flag:
+```csharp
+var zone = options.Features[JobName].Arguments?.GetValueOrDefault("zone") ?? "default";
+```
+
+Only string values are supported. Jobs parse to other types themselves.
+
+### What Roadbed.Scheduling does *not* do
+
+- It does **not** read `appsettings.json`, `IConfiguration`, or environment variables. The application owns all configuration parsing.
+- It does **not** take a dependency on `Microsoft.FeatureManagement` or any feature-flag provider. `SchedulingJobOptions` is a plain POCO.
+- It does **not** evaluate gates at runtime. Gating is decided once during host startup. To re-evaluate, restart the host.
+
 ---
 
 ## Schedule Types
