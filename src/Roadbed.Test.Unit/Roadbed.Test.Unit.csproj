@@ -32,6 +32,7 @@
 	<ItemGroup>
 		<PackageReference Include="CsvHelper" Version="33.1.0" />
 		<PackageReference Include="Dapper" Version="2.1.72" />
+		<PackageReference Include="KeePassLib.Standard" Version="2.57.1" />
 		<PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.7" />
 		<PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.7" />
 		<PackageReference Include="Microsoft.Extensions.Diagnostics.Testing" Version="10.5.0" />
@@ -59,6 +60,7 @@
 		<ProjectReference Include="..\Roadbed.Messaging\Roadbed.Messaging.csproj" />
 		<ProjectReference Include="..\Roadbed.Net\Roadbed.Net.csproj" />
 		<ProjectReference Include="..\Roadbed.Scheduling\Roadbed.Scheduling.csproj" />
+		<ProjectReference Include="..\Roadbed.Secrets.KeePass\Roadbed.Secrets.KeePass.csproj" />
 	</ItemGroup>
 
 	<ItemGroup>

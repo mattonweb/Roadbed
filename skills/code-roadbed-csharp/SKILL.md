@@ -1,6 +1,6 @@
 ---
 name: code-roadbed-csharp
-description: Use this skill when writing or modifying C# code that uses the Roadbed.* libraries (Common, Crud, Data, Data.Dapper, Data.Sqlite, Data.Postgresql, Data.MySql, Net, IO, IO.Csv, Messaging, Scheduling). TRIGGER when the project references any Roadbed.*.dll, when the user asks to scaffold a CRUDL repository / service / SDK class library / scheduled job / CSV file handler / message envelope / HTTP client wrapper using Roadbed, or when the user mentions any Roadbed.* type by name. SKIP for unrelated C# projects, ASP.NET Core code that doesn't reference Roadbed, or code using EF Core / non-Roadbed data access patterns.
+description: Use this skill when writing or modifying C# code that uses the Roadbed.* libraries (Common, Crud, Data, Data.Dapper, Data.Sqlite, Data.Postgresql, Data.MySql, Net, IO, IO.Csv, Messaging, Scheduling, Secrets.KeePass). TRIGGER when the project references any Roadbed.*.dll, when the user asks to scaffold a CRUDL repository / service / SDK class library / scheduled job / CSV file handler / message envelope / HTTP client wrapper / KeePass-backed secret reader using Roadbed, or when the user mentions any Roadbed.* type by name. SKIP for unrelated C# projects, ASP.NET Core code that doesn't reference Roadbed, or code using EF Core / non-Roadbed data access patterns.
 ---
 
 # code-roadbed-csharp
@@ -25,6 +25,7 @@ The reference files in `references/` are the authoritative per-library guides. R
 | CSV reading/writing with `IoCsvFile<T>` and `ICsvEntityMapper<T>`               | `references/reference-roadbed-io-csv.md`      |
 | Pub/sub message envelopes (`MessagingMessageRequest<T>`, `MessagingMessageResponse<T>`, `MessagingPublisher`) | `references/reference-roadbed-messaging.md`   |
 | Scheduled / recurring jobs (`BaseSchedulingJob<T>`, `SchedulingSchedule`, `SchedulingJobOptions`, metrics) | `references/reference-roadbed-scheduling.md`  |
+| KeePass2 (`.kdbx`) secret loading at startup (`KeePassReader`, `IKeePassOptions`, `KeePassSecret`, marker-interface multi-database pattern) | `references/reference-roadbed-secrets-keepass.md` |
 
 If the user's request spans multiple libraries (e.g., "an SDK that calls a REST API and stores results in SQLite"), load every relevant reference.
 
