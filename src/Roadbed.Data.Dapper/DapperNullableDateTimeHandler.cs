@@ -6,15 +6,22 @@ using System.Globalization;
 using Dapper;
 
 /// <summary>
-/// Dapper type handler for converting SQLite TEXT to nullable DateTime.
+/// Dapper type handler for converting SQLite TEXT or MySQL/MariaDB DATETIME
+/// columns to nullable DateTime.
 /// </summary>
 /// <remarks>
 /// <para>
-/// SQLite stores DateTime as TEXT in ISO 8601 format.
-/// All DateTime values are treated as UTC to maintain consistency.
+/// SQLite stores DateTime as TEXT in ISO 8601 format (e.g. "2024-01-15 14:30:00").
+/// All values are treated as UTC to maintain consistency.
 /// </para>
 /// <para>
-/// Example stored format: "2024-01-15 14:30:00".
+/// MySQL / MariaDB DATETIME columns are naive — there is no timezone
+/// information in the column. The application-side convention these
+/// handlers serve is to write UTC values. On read-back the driver returns
+/// <see cref="DateTime"/> with <see cref="DateTimeKind.Unspecified"/>;
+/// this handler re-attaches <see cref="DateTimeKind.Utc"/> rather than
+/// calling <see cref="DateTime.ToUniversalTime"/>, which would treat the
+/// value as local time and shift it by the local timezone offset.
 /// </para>
 /// </remarks>
 public class DapperNullableDateTimeHandler : SqlMapper.TypeHandler<DateTime?>
@@ -41,10 +48,20 @@ public class DapperNullableDateTimeHandler : SqlMapper.TypeHandler<DateTime?>
 
         if (value is DateTime dateTime)
         {
-            // Ensure returned DateTime is UTC
-            return dateTime.Kind == DateTimeKind.Utc
-                ? dateTime
-                : dateTime.ToUniversalTime();
+            // The application-side convention is "always write UTC". The
+            // MariaDB / MySQL driver returns DateTime with Kind=Unspecified
+            // because DATETIME columns have no timezone info; re-attach UTC
+            // rather than calling ToUniversalTime() (which would treat the
+            // value as local and shift it). Kind=Local from an explicit
+            // caller is still converted via ToUniversalTime() so a non-UTC
+            // input is normalized on read.
+            return dateTime.Kind switch
+            {
+                DateTimeKind.Utc => dateTime,
+                DateTimeKind.Unspecified => DateTime.SpecifyKind(dateTime, DateTimeKind.Utc),
+                DateTimeKind.Local => dateTime.ToUniversalTime(),
+                _ => DateTime.SpecifyKind(dateTime, DateTimeKind.Utc),
+            };
         }
 
         throw new InvalidOperationException($"Cannot convert {value?.GetType()} to DateTime?");

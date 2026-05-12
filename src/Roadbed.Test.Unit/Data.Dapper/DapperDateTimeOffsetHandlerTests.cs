@@ -89,6 +89,51 @@ public class DapperDateTimeOffsetHandlerTests
     }
 
     /// <summary>
+    /// Unit test to verify that Parse converts an unspecified-kind DateTime
+    /// (the shape MySQL / MariaDB returns for naive DATETIME columns) into a
+    /// UTC-offset DateTimeOffset whose wall-clock fields match the input
+    /// exactly. The handler must NOT call ToUniversalTime() on an
+    /// unspecified-kind value — that would shift the time by the local TZ
+    /// offset and corrupt the UTC-by-convention value.
+    /// </summary>
+    [TestMethod]
+    public void Parse_MariaDbDateTimeValue_ReturnsUtcDateTimeOffsetWithoutShifting()
+    {
+        // Arrange (Given)
+        var handler = new DapperDateTimeOffsetHandler();
+        DateTime mariaDbDateTime = new DateTime(2024, 1, 15, 14, 30, 0, DateTimeKind.Unspecified);
+
+        // Act (When)
+        DateTimeOffset result = handler.Parse(mariaDbDateTime);
+
+        // Assert (Then)
+        Assert.AreEqual(
+            TimeSpan.Zero,
+            result.Offset,
+            "Offset should be UTC (zero) for a MariaDB-shaped DateTime input.");
+        Assert.AreEqual(
+            2024,
+            result.Year,
+            "Year should match the input wall-clock value.");
+        Assert.AreEqual(
+            1,
+            result.Month,
+            "Month should match the input wall-clock value.");
+        Assert.AreEqual(
+            15,
+            result.Day,
+            "Day should match the input wall-clock value.");
+        Assert.AreEqual(
+            14,
+            result.Hour,
+            "Hour should match the input wall-clock value (no TZ shift).");
+        Assert.AreEqual(
+            30,
+            result.Minute,
+            "Minute should match the input wall-clock value.");
+    }
+
+    /// <summary>
     /// Unit test to verify that Parse throws exception for invalid type.
     /// </summary>
     [TestMethod]

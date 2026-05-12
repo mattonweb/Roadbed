@@ -125,6 +125,54 @@ public class DapperNullableDateTimeOffsetHandlerTests
     }
 
     /// <summary>
+    /// Unit test to verify that Parse converts an unspecified-kind DateTime
+    /// (the shape MySQL / MariaDB returns for naive DATETIME columns) into a
+    /// UTC-offset DateTimeOffset whose wall-clock fields match the input
+    /// exactly. The handler must NOT call ToUniversalTime() on an
+    /// unspecified-kind value — that would shift the time by the local TZ
+    /// offset and corrupt the UTC-by-convention value.
+    /// </summary>
+    [TestMethod]
+    public void Parse_MariaDbDateTimeValue_ReturnsUtcDateTimeOffsetWithoutShifting()
+    {
+        // Arrange (Given)
+        var handler = new DapperNullableDateTimeOffsetHandler();
+        DateTime mariaDbDateTime = new DateTime(2024, 1, 15, 14, 30, 0, DateTimeKind.Unspecified);
+
+        // Act (When)
+        DateTimeOffset? result = handler.Parse(mariaDbDateTime);
+
+        // Assert (Then)
+        Assert.IsNotNull(
+            result,
+            "Parse should return a DateTimeOffset value for a DateTime input.");
+        Assert.AreEqual(
+            TimeSpan.Zero,
+            result.Value.Offset,
+            "Offset should be UTC (zero) for a MariaDB-shaped DateTime input.");
+        Assert.AreEqual(
+            2024,
+            result.Value.Year,
+            "Year should match the input wall-clock value.");
+        Assert.AreEqual(
+            1,
+            result.Value.Month,
+            "Month should match the input wall-clock value.");
+        Assert.AreEqual(
+            15,
+            result.Value.Day,
+            "Day should match the input wall-clock value.");
+        Assert.AreEqual(
+            14,
+            result.Value.Hour,
+            "Hour should match the input wall-clock value (no TZ shift).");
+        Assert.AreEqual(
+            30,
+            result.Value.Minute,
+            "Minute should match the input wall-clock value.");
+    }
+
+    /// <summary>
     /// Unit test to verify that Parse throws exception for invalid type.
     /// </summary>
     [TestMethod]
