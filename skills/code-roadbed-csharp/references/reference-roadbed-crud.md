@@ -1,21 +1,23 @@
 # Roadbed.Crud Reference
 
-Generic repository and service contracts for entities. Provides composite interfaces (`Crud`, `Crudl`, `Cruda`, `Crudal`, `ListOnly`) and base classes that implement the boilerplate, leaving only the data-access primitives for the consuming class to fill in.
+Generic repository and service contracts for entities. Provides composite interfaces (`Crud`, `Crudl`, `Cruda`, `Crudal`, `ListOnly`, plus the ETL-oriented `BulkOnly` and `Bt`) and base classes that implement the boilerplate, leaving only the data-access primitives for the consuming class to fill in.
 
-## Type catalog (60 types)
+## Type catalog (84 types)
 
 | Group                                | Examples                                                                            | Notes                                                  |
 | ------------------------------------ | ----------------------------------------------------------------------------------- | ------------------------------------------------------ |
 | Entity contracts (3)                 | `IEntity<TId>`, `BaseEntityRecord<TId>`, `BaseEntityClass<TId>`                     | Records for DTOs, classes for ORM-managed entities.    |
 | Repository marker (1)                | `IRepository<TEntity, TId>`                                                         | Empty marker; only repository composites inherit it.   |
-| Operation interfaces (16)            | `IAsyncCreateOperation<...>`, `ISyncDeleteOperation<...>`, etc.                     | One per operation × Async/Sync. Cherry-pick when no composite fits. |
-| Repository composites (10)           | `IAsyncCrudlRepository<...>`, `ISyncCrudaRepository<...>`, etc.                     | `ListOnly`, `Crud`, `Crudl`, `Cruda`, `Crudal` × Async/Sync. |
-| Repository base classes (10)         | `BaseAsyncCrudlRepository<...>`, `BaseSyncListOnlyRepository<...>`, etc.            | All methods are `abstract`.                            |
-| Service composites (10)              | `IAsyncCrudlService<...>`, etc.                                                     | Add `Exists` and `Upsert`. Do not inherit `IRepository`. |
-| Service base classes (10)            | `BaseAsyncCrudlService<...>`, etc.                                                  | All methods are `virtual`. `Exists`/`Upsert` are pre-composed. |
+| Operation interfaces (20)            | `IAsyncCreateOperation<...>`, `ISyncBulkInsertOperation<...>`, etc.                 | One per operation × Async/Sync. Cherry-pick when no composite fits. Now includes `BulkInsert` and `Truncate`. |
+| Repository composites (14)           | `IAsyncCrudlRepository<...>`, `IAsyncBulkOnlyRepository<...>`, `IAsyncBtRepository<...>`, etc. | `ListOnly`, `Crud`, `Crudl`, `Cruda`, `Crudal`, `BulkOnly`, `Bt` × Async/Sync. |
+| Repository base classes (14)         | `BaseAsyncCrudlRepository<...>`, `BaseAsyncBtRepository<...>`, etc.                 | All methods are `abstract`.                            |
+| Service composites (14)              | `IAsyncCrudlService<...>`, `IAsyncBulkOnlyService<...>`, `IAsyncBtService<...>`, etc. | Add `Exists` and `Upsert` on CRUDAL tiers. Do not inherit `IRepository`. |
+| Service base classes (14)            | `BaseAsyncCrudlService<...>`, `BaseAsyncBtService<...>`, etc.                       | All methods are `virtual`. `Exists`/`Upsert` are pre-composed. ETL service tiers validate `activityId` before delegating. |
 
 ## MUST
 
+- **MUST** supply a non-blank `activityId` whenever you call `BulkInsertAsync` / `BulkInsert`. The service base classes enforce this with `ArgumentException.ThrowIfNullOrWhiteSpace`. The string is opaque to Roadbed — the consuming app chooses the scheme (ULID, GUID, run number, etc.).
+- **MUST** own activity-record creation and timing in the consuming app. The activity row that the `activityId` refers to — including its `started_on` / `ended_on` timestamps — lives in the consuming application's schema, never in Roadbed. The bulk operation carries only the id.
 - **MUST** put new entities in either `BaseEntityRecord<TId>` (immutable / API DTOs / configuration) or `BaseEntityClass<TId>` (ORM-managed / Dapper / mutable domain entities). Both implement `IEntity<TId>`.
 - **MUST** declare repository interfaces and service interfaces as `internal` when they sit alongside a `public` concrete service class. The application layer depends on the concrete service, never on either interface.
 - **MUST** declare the concrete service as `public sealed class FooService` so the consuming application can resolve it.
@@ -30,6 +32,9 @@ Generic repository and service contracts for entities. Provides composite interf
 
 ## MUST NOT
 
+- **MUST NOT** generate the `activityId` inside Roadbed. There is no `NewActivityId()` helper, no default, no fallback. Generation is the consuming app's responsibility.
+- **MUST NOT** thread per-row load timestamps through the bulk operation signature. There is no `ingestedOn` parameter. Per-row timing lives on the activity record the consuming app already keeps; join through `activityId` if you need it.
+- **MUST NOT** parse, normalize, or case-fold the `activityId` inside the repository — even if you "know" it's a ULID. The contract is opaque-string.
 - **MUST NOT** declare the service interface as `public`. The application layer should not see it.
 - **MUST NOT** declare the concrete service as `internal`. The application cannot resolve internal types.
 - **MUST NOT** give the concrete service a single constructor that exposes the internal repository interface — the application layer would see types it shouldn't.
@@ -49,20 +54,24 @@ Pick the smallest interface that covers the operations you need:
 | Standard CRUD + List                           | `IAsync/SyncCrudlRepository<T, TId>` + `IAsync/SyncCrudlService<T, TId>`       |
 | CRUD + Archive (soft delete)                   | `IAsync/SyncCrudaRepository<T, TId>` + `IAsync/SyncCrudaService<T, TId>`       |
 | CRUD + Archive + List (full)                   | `IAsync/SyncCrudalRepository<T, TId>` + `IAsync/SyncCrudalService<T, TId>`     |
+| Bulk-insert only — Bronze append-only landing  | `IAsync/SyncBulkOnlyRepository<T, TId>` + `IAsync/SyncBulkOnlyService<T, TId>` |
+| Bulk-insert + Truncate — Silver snapshot reload | `IAsync/SyncBtRepository<T, TId>` + `IAsync/SyncBtService<T, TId>`           |
 | Cherry-pick (no composite fits)                | `IRepository<T, TId>` + individual `IAsync*Operation` interfaces           |
 
 ## Method signatures (lock these in)
 
-| Operation | Async signature                                                  | Sync signature                  |
-| --------- | ---------------------------------------------------------------- | ------------------------------- |
-| Create    | `Task<TEntity> CreateAsync(TEntity entity, CancellationToken)`   | `TEntity Create(TEntity entity)` |
-| Read      | `Task<TEntity?> ReadAsync(TId id, CancellationToken)`            | `TEntity? Read(TId id)`         |
-| Update    | `Task<TEntity> UpdateAsync(TEntity entity, CancellationToken)`   | `TEntity Update(TEntity entity)` |
-| Delete    | `Task DeleteAsync(TId id, CancellationToken)`                    | `void Delete(TId id)`           |
-| Archive   | `Task<TEntity> ArchiveAsync(TId id, CancellationToken)`          | `TEntity Archive(TId id)`       |
-| List      | `Task<IList<TEntity>> ListAsync(CancellationToken)`              | `IList<TEntity> List()`         |
-| Exists    | `Task<bool> ExistsAsync(TId id, CancellationToken)`              | `bool Exists(TId id)`           |
-| Upsert    | `Task<TEntity> UpsertAsync(TEntity entity, CancellationToken)`   | `TEntity Upsert(TEntity entity)` |
+| Operation    | Async signature                                                                       | Sync signature                                       |
+| ------------ | ------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| Create       | `Task<TEntity> CreateAsync(TEntity entity, CancellationToken)`                        | `TEntity Create(TEntity entity)`                     |
+| Read         | `Task<TEntity?> ReadAsync(TId id, CancellationToken)`                                 | `TEntity? Read(TId id)`                              |
+| Update       | `Task<TEntity> UpdateAsync(TEntity entity, CancellationToken)`                        | `TEntity Update(TEntity entity)`                     |
+| Delete       | `Task DeleteAsync(TId id, CancellationToken)`                                         | `void Delete(TId id)`                                |
+| Archive      | `Task<TEntity> ArchiveAsync(TId id, CancellationToken)`                               | `TEntity Archive(TId id)`                            |
+| List         | `Task<IList<TEntity>> ListAsync(CancellationToken)`                                   | `IList<TEntity> List()`                              |
+| Exists       | `Task<bool> ExistsAsync(TId id, CancellationToken)`                                   | `bool Exists(TId id)`                                |
+| Upsert       | `Task<TEntity> UpsertAsync(TEntity entity, CancellationToken)`                        | `TEntity Upsert(TEntity entity)`                     |
+| Bulk Insert  | `Task<long> BulkInsertAsync(string activityId, IList<TEntity> rows, CancellationToken)` | `long BulkInsert(string activityId, IList<TEntity> rows)` |
+| Truncate     | `Task TruncateAsync(CancellationToken)`                                               | `void Truncate()`                                    |
 
 ## Code patterns
 
@@ -266,6 +275,118 @@ internal sealed class BarRepository
 }
 ```
 
+### ETL / medallion bulk loads — `BulkOnly` (Bronze) and `Bt` (Silver)
+
+Two specialty tiers for set-based loads in a medallion-architecture pipeline:
+
+- **`BulkOnly`** — single operation: `BulkInsert`. Use for Bronze landing tables that **accumulate** rows across many load cycles. Every row is tagged with the `activityId` of the load that wrote it.
+- **`Bt`** ("bee-tee", Bulk + Truncate) — two operations: `BulkInsert` and `Truncate`. Use for Silver staging / derived tables that are **wiped and rebuilt** in full on every load cycle (snapshot reload). The intended call pattern is `Truncate` → `BulkInsert`. `IAsyncBtRepository<T, TId>` inherits `IAsyncBulkOnlyRepository<T, TId>`, so the bulk insert method is declared once.
+
+Both tiers require `TEntity : IEntity<TId>` like every other Crud repository. Bronze DTOs should expose their natural key or surrogate (`AUTO_INCREMENT bronze_id`, ULID, source-system key) through `Id`; pick a scheme that lets the DB assign it on insert when applicable.
+
+#### Activity lineage contract
+
+`activityId` is an opaque, caller-supplied string. The consuming application:
+
+- Owns the activity record (typically a row in its own `*_activities` table with `started_on`, `ended_on`, `outcome`, etc.).
+- Generates the id on its own schedule. ULIDs are a natural fit because they sort lexicographically by time.
+- Passes the id to **every** bulk-insert call that belongs to that activity.
+
+Roadbed does not generate, validate the shape of, or interpret the id. The service base classes do enforce that the id is non-blank — calling `BulkInsertAsync` with `null` / `""` / `"   "` throws `ArgumentException`. Per-row load timing lives on the activity record, not on the bulk-insert signature.
+
+#### Bronze — `BulkOnly`
+
+```csharp
+// Marker interface (per the marker-interface DI pattern)
+internal interface IFooBronzeRepository
+    : IAsyncBulkOnlyRepository<FooBronzeRow, long>
+{
+}
+
+internal sealed class FooBronzeRepository
+    : BaseAsyncBulkOnlyRepository<FooBronzeRow, long>,
+      IFooBronzeRepository
+{
+    private readonly IFooDatabaseFactory _connectionFactory;
+
+    public FooBronzeRepository(
+        IFooDatabaseFactory connectionFactory,
+        ILogger<FooBronzeRepository> logger)
+        : base(logger)
+    {
+        ArgumentNullException.ThrowIfNull(connectionFactory);
+        this._connectionFactory = connectionFactory;
+    }
+
+    public override async Task<long> BulkInsertAsync(
+        string activityId,
+        IList<FooBronzeRow> rows,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(activityId);
+        ArgumentNullException.ThrowIfNull(rows);
+
+        // ... driver-specific bulk insert; tag every row with activityId ...
+        return rows.Count;
+    }
+}
+```
+
+#### Silver — `Bt`
+
+```csharp
+internal interface IBarSilverRepository
+    : IAsyncBtRepository<BarSilverRow, long>
+{
+}
+
+internal sealed class BarSilverRepository
+    : BaseAsyncBtRepository<BarSilverRow, long>,
+      IBarSilverRepository
+{
+    private readonly IBarDatabaseFactory _connectionFactory;
+
+    public BarSilverRepository(
+        IBarDatabaseFactory connectionFactory,
+        ILogger<BarSilverRepository> logger)
+        : base(logger)
+    {
+        ArgumentNullException.ThrowIfNull(connectionFactory);
+        this._connectionFactory = connectionFactory;
+    }
+
+    public override async Task TruncateAsync(CancellationToken cancellationToken = default)
+    {
+        // ... TRUNCATE TABLE bar_silver ...
+    }
+
+    public override async Task<long> BulkInsertAsync(
+        string activityId,
+        IList<BarSilverRow> rows,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(activityId);
+        ArgumentNullException.ThrowIfNull(rows);
+
+        // ... driver-specific bulk insert; tag every row with activityId ...
+        return rows.Count;
+    }
+}
+```
+
+#### Calling the service — snapshot reload
+
+```csharp
+// activityId is generated by the consuming app at the start of the load.
+string activityId = Ulid.NewUlid().ToString();
+await this._activities.StartAsync(activityId, "bar.silver.reload", cancellationToken);
+
+await this._barService.TruncateAsync(cancellationToken);
+long inserted = await this._barService.BulkInsertAsync(activityId, rows, cancellationToken);
+
+await this._activities.EndAsync(activityId, outcome: "success", rowsAffected: inserted, cancellationToken);
+```
+
 ## Common pitfalls
 
 ### Wrong return types
@@ -381,6 +502,62 @@ public sealed class FooService : BaseAsyncCrudlService<Foo, string>
 
 // ✅
 using Roadbed;
+```
+
+### Generating `activityId` inside the repository
+
+```csharp
+// ❌ Repository invents its own id. Callers can't correlate the inserted rows
+//    with any activity record on their side, defeating the entire point.
+public override async Task<long> BulkInsertAsync(
+    string activityId,
+    IList<FooBronzeRow> rows,
+    CancellationToken cancellationToken = default)
+{
+    activityId = Ulid.NewUlid().ToString();  // 🔥
+    // ...
+}
+
+// ✅ The caller supplies activityId. The repository (or service base) only
+//    validates it's non-blank and threads it through to persistence.
+```
+
+### Adding a per-row `ingestedOn` parameter to the bulk operation
+
+```csharp
+// ❌ Forces every caller to compute and supply a timestamp; if it drifts from
+//    the activity record's started_on, lineage is broken.
+public override async Task<long> BulkInsertAsync(
+    string activityId,
+    DateTimeOffset ingestedOn,   // <-- not part of the Roadbed contract
+    IList<FooBronzeRow> rows,
+    CancellationToken cancellationToken = default) { ... }
+
+// ✅ The activity record on the consuming-app side owns the timestamp.
+//    Join through activityId when you need to know "when did this row land."
+public override async Task<long> BulkInsertAsync(
+    string activityId,
+    IList<FooBronzeRow> rows,
+    CancellationToken cancellationToken = default) { ... }
+```
+
+### `Bt` repository that re-implements `BulkInsertAsync` separately
+
+```csharp
+// ❌ Bt inherits BulkOnly. Declaring BulkInsertAsync twice (once via each
+//    base interface) doesn't compile, but trying to "implement BulkOnly +
+//    Truncate side by side" without going through BaseAsyncBtRepository
+//    means you've lost the marker-interface story.
+public sealed class BarRepo
+    : IAsyncBulkOnlyRepository<Bar, long>,
+      IAsyncTruncateOperation<Bar, long> { /* ... */ }
+
+// ✅ Use BaseAsyncBtRepository — Bt extends BulkOnly, so one BulkInsertAsync
+//    method satisfies both interfaces and downstream consumers can inject
+//    either marker.
+public sealed class BarRepo
+    : BaseAsyncBtRepository<Bar, long>,
+      IBarSilverRepository { /* ... */ }
 ```
 
 ## Quick reference
