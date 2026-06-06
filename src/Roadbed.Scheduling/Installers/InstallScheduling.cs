@@ -1,7 +1,9 @@
 ﻿namespace Roadbed.Scheduling.Installers;
 
 using System;
+using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Quartz;
@@ -388,7 +390,7 @@ public class InstallScheduling : IServiceCollectionInstaller
             .Where(a => !a.FullName!.StartsWith("Microsoft."));
 
         var jobTypes = assemblies
-            .SelectMany(a => a.GetTypes())
+            .SelectMany(SafeGetTypes)
             .Where(t => typeof(ISchedulingJob).IsAssignableFrom(t))
             .Where(t => !t.IsInterface && !t.IsAbstract)
             .Where(t => t.GetConstructors().Any(c => c.GetParameters().Length > 0));
@@ -401,6 +403,33 @@ public class InstallScheduling : IServiceCollectionInstaller
 
             // 2. As ISchedulingJob (for discovery)
             services.AddTransient(typeof(ISchedulingJob), jobType);
+        }
+    }
+
+    /// <summary>
+    /// Enumerates the loadable types of an assembly without throwing when
+    /// some types fail to resolve their dependencies.
+    /// </summary>
+    /// <param name="assembly">The assembly to enumerate.</param>
+    /// <returns>The successfully-loaded types; types that failed to load are silently skipped.</returns>
+    /// <remarks>
+    /// An AppDomain-wide <c>Assembly.GetTypes()</c> can throw
+    /// <see cref="ReflectionTypeLoadException"/> when an assembly references
+    /// types whose defining assemblies have not yet been loaded — common in
+    /// unit-test processes where assembly loading races with reflection.
+    /// In that case the exception still carries the successfully-loaded
+    /// types in <see cref="ReflectionTypeLoadException.Types"/>; we filter
+    /// out the nulls and proceed.
+    /// </remarks>
+    private static IEnumerable<Type> SafeGetTypes(Assembly assembly)
+    {
+        try
+        {
+            return assembly.GetTypes();
+        }
+        catch (ReflectionTypeLoadException ex)
+        {
+            return ex.Types.Where(t => t is not null).Cast<Type>();
         }
     }
 
