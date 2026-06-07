@@ -39,16 +39,19 @@ public sealed class LoggingActivityScope : IDisposable
     /// Initializes a new instance of the <see cref="LoggingActivityScope"/> class.
     /// </summary>
     /// <param name="activityId">Caller-supplied ULID of the underlying activity row.</param>
+    /// <param name="createdOn">UTC timestamp persisted in the row's <c>created_on</c> column. Captured here so subsequent update calls can include it in the WHERE clause and let MySQL prune to the one monthly partition that owns the row.</param>
     /// <param name="activity">The diagnostic <see cref="Activity"/> the service started, when one was created.</param>
     /// <param name="logScope">The MEL scope handle the service opened, when one was created.</param>
     public LoggingActivityScope(
         string activityId,
+        DateTime createdOn,
         Activity? activity,
         IDisposable? logScope)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(activityId);
 
         this.ActivityId = activityId;
+        this.CreatedOn = createdOn;
         this._activity = activity;
         this._logScope = logScope;
     }
@@ -61,6 +64,19 @@ public sealed class LoggingActivityScope : IDisposable
     /// Gets the caller-supplied ULID of the underlying activity row.
     /// </summary>
     public string ActivityId { get; }
+
+    /// <summary>
+    /// Gets the UTC timestamp persisted in the row's <c>created_on</c>
+    /// column.
+    /// </summary>
+    /// <remarks>
+    /// The activity table is RANGE-partitioned monthly on
+    /// <c>TO_DAYS(created_on)</c>. Update calls that include
+    /// <c>created_on</c> in the WHERE clause prune to the single
+    /// partition that holds the row; calls that pass only the
+    /// <see cref="ActivityId"/> probe every partition.
+    /// </remarks>
+    public DateTime CreatedOn { get; }
 
     /// <summary>
     /// Gets the OpenTelemetry-compatible trace identifier active inside the scope,

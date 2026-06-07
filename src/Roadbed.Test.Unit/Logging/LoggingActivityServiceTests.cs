@@ -61,6 +61,9 @@ public class LoggingActivityServiceTests
         Assert.AreEqual("override-app", captured.Application);
         Assert.IsNotNull(captured.StartedOn);
         Assert.IsNotNull(captured.LastHeartbeatOn);
+        Assert.AreEqual(DateTimeKind.Utc, captured.CreatedOn.Kind, "CreatedOn must be stamped explicitly with a UTC value.");
+        Assert.AreEqual(DateTimeKind.Utc, captured.LastModifiedOn.Kind, "LastModifiedOn must be stamped explicitly with a UTC value.");
+        Assert.AreEqual(captured.CreatedOn, returnedScope.CreatedOn, "Scope.CreatedOn must match the row's stamped created_on so update WHEREs prune to one partition.");
         Assert.AreEqual(ActivityId, returnedScope.ActivityId);
         Assert.AreEqual(32, returnedScope.TraceId!.Length, "Scope should expose a W3C trace id.");
         activityRepository.Verify(
@@ -146,8 +149,8 @@ public class LoggingActivityServiceTests
         var activityRepository = new Mock<ILoggingActivityRepository>();
         DateTime? captured = null;
         activityRepository
-            .Setup(r => r.RecordHeartbeatAsync(It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
-            .Callback<string, DateTime, CancellationToken>((_, when, _) => captured = when)
+            .Setup(r => r.RecordHeartbeatAsync(It.IsAny<string>(), It.IsAny<DateTime?>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .Callback<string, DateTime?, DateTime, CancellationToken>((_, _, when, _) => captured = when)
             .Returns(Task.CompletedTask);
 
         var service = new LoggingActivityService(
@@ -230,12 +233,13 @@ public class LoggingActivityServiceTests
         activityRepository
             .Setup(r => r.FailAsync(
                 It.IsAny<string>(),
+                It.IsAny<DateTime?>(),
                 It.IsAny<DateTime>(),
                 It.IsAny<string>(),
                 It.IsAny<string>(),
                 It.IsAny<CancellationToken>()))
-            .Callback<string, DateTime, string, string, CancellationToken>(
-                (_, _, error, errorType, _) =>
+            .Callback<string, DateTime?, DateTime, string, string, CancellationToken>(
+                (_, _, _, error, errorType, _) =>
                 {
                     capturedError = error;
                     capturedErrorType = errorType;

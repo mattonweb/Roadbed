@@ -119,6 +119,11 @@ public sealed class LoggingActivityService
                 [ActivityIdScopeKey] = request.Id,
             });
 
+        // Stamp created_on explicitly (not server DEFAULT) so we know the
+        // exact value at scope time. UPDATE statements include it in their
+        // WHERE clause to enable MySQL partition pruning to one partition.
+        DateTime nowUtc = DateTime.UtcNow;
+
         var entity = new LoggingActivity
         {
             Id = request.Id,
@@ -132,8 +137,8 @@ public sealed class LoggingActivityService
             ActivityType = request.ActivityType ?? LoggingActivityType.Unknown.ToString().ToLowerInvariant(),
             Target = request.Target,
             Status = LoggingActivityStatus.Running,
-            StartedOn = DateTime.UtcNow,
-            LastHeartbeatOn = DateTime.UtcNow,
+            StartedOn = nowUtc,
+            LastHeartbeatOn = nowUtc,
             ParametersJson = request.ParametersJson,
             SchedulerInstanceId = request.SchedulerInstanceId,
             FireInstanceId = request.FireInstanceId,
@@ -144,6 +149,8 @@ public sealed class LoggingActivityService
             Host = this._hostName,
             ProcessId = this._processId,
             CreatedBy = request.CreatedBy,
+            CreatedOn = nowUtc,
+            LastModifiedOn = nowUtc,
         };
 
         try
@@ -162,7 +169,21 @@ public sealed class LoggingActivityService
             throw;
         }
 
-        return new LoggingActivityScope(request.Id, activity, logScope);
+        return new LoggingActivityScope(request.Id, nowUtc, activity, logScope);
+    }
+
+    /// <inheritdoc/>
+    public Task HeartbeatAsync(
+        LoggingActivityScope scope,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(scope);
+
+        return this._activityRepository.RecordHeartbeatAsync(
+            scope.ActivityId,
+            scope.CreatedOn,
+            DateTime.UtcNow,
+            cancellationToken);
     }
 
     /// <inheritdoc/>
@@ -174,6 +195,7 @@ public sealed class LoggingActivityService
 
         return this._activityRepository.RecordHeartbeatAsync(
             activityId,
+            createdOn: null,
             DateTime.UtcNow,
             cancellationToken);
     }
@@ -191,6 +213,25 @@ public sealed class LoggingActivityService
 
     /// <inheritdoc/>
     public Task CompleteAsync(
+        LoggingActivityScope scope,
+        LoggingActivityStatus status,
+        long? recordsImpacted = null,
+        string? metricsJson = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(scope);
+
+        return this.CompleteCoreAsync(
+            scope.ActivityId,
+            scope.CreatedOn,
+            status,
+            recordsImpacted,
+            metricsJson,
+            cancellationToken);
+    }
+
+    /// <inheritdoc/>
+    public Task CompleteAsync(
         string activityId,
         LoggingActivityStatus status,
         long? recordsImpacted = null,
@@ -199,19 +240,30 @@ public sealed class LoggingActivityService
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(activityId);
 
-        if (status == LoggingActivityStatus.Failed)
-        {
-            throw new ArgumentException(
-                $"Use {nameof(this.FailAsync)} to record an exception-driven failure.",
-                nameof(status));
-        }
-
-        return this._activityRepository.CompleteAsync(
+        return this.CompleteCoreAsync(
             activityId,
+            createdOn: null,
             status,
-            DateTime.UtcNow,
             recordsImpacted,
             metricsJson,
+            cancellationToken);
+    }
+
+    /// <inheritdoc/>
+    public Task FailAsync(
+        LoggingActivityScope scope,
+        Exception error,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(scope);
+        ArgumentNullException.ThrowIfNull(error);
+
+        return this._activityRepository.FailAsync(
+            scope.ActivityId,
+            scope.CreatedOn,
+            DateTime.UtcNow,
+            error.Message,
+            error.GetType().FullName ?? error.GetType().Name,
             cancellationToken);
     }
 
@@ -226,6 +278,7 @@ public sealed class LoggingActivityService
 
         return this._activityRepository.FailAsync(
             activityId,
+            createdOn: null,
             DateTime.UtcNow,
             error.Message,
             error.GetType().FullName ?? error.GetType().Name,
@@ -253,4 +306,45 @@ public sealed class LoggingActivityService
     }
 
     #endregion Public Methods
+
+    #region Private Methods
+
+    /// <summary>
+    /// Shared body for the two <c>CompleteAsync</c> overloads. Rejects
+    /// the <see cref="LoggingActivityStatus.Failed"/> status so callers
+    /// must route through <c>FailAsync</c> for exception-driven failures.
+    /// </summary>
+    /// <param name="activityId">Identifier of the activity row to finalize.</param>
+    /// <param name="createdOn">When supplied, the repository UPDATE includes <c>AND created_on = @CreatedOn</c> for partition pruning.</param>
+    /// <param name="status">Terminal status to record.</param>
+    /// <param name="recordsImpacted">Optional headline count of records produced or affected during the run.</param>
+    /// <param name="metricsJson">Optional metrics JSON to persist alongside the terminal status.</param>
+    /// <param name="cancellationToken">Token to notify when the operation should be canceled.</param>
+    /// <returns>A task that completes when the row has been finalized.</returns>
+    private Task CompleteCoreAsync(
+        string activityId,
+        DateTime? createdOn,
+        LoggingActivityStatus status,
+        long? recordsImpacted,
+        string? metricsJson,
+        CancellationToken cancellationToken)
+    {
+        if (status == LoggingActivityStatus.Failed)
+        {
+            throw new ArgumentException(
+                $"Use {nameof(this.FailAsync)} to record an exception-driven failure.",
+                nameof(status));
+        }
+
+        return this._activityRepository.CompleteAsync(
+            activityId,
+            createdOn,
+            status,
+            DateTime.UtcNow,
+            recordsImpacted,
+            metricsJson,
+            cancellationToken);
+    }
+
+    #endregion Private Methods
 }

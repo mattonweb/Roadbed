@@ -29,6 +29,20 @@ public sealed class LoggingActivityUpdateRequest
     public string ActivityId { get; set; } = string.Empty;
 
     /// <summary>
+    /// Gets or sets the row's <c>created_on</c> timestamp, when known by
+    /// the caller.
+    /// </summary>
+    /// <remarks>
+    /// When set, the generated UPDATE includes
+    /// <c>AND created_on = @CreatedOn</c> in the WHERE clause so MySQL
+    /// prunes to the single monthly partition that owns the row. Leave
+    /// <c>null</c> when calling from a context that does not hold the
+    /// <see cref="LoggingActivityScope"/> — the UPDATE still succeeds, but
+    /// it has to probe every defined partition.
+    /// </remarks>
+    public DateTime? CreatedOn { get; set; }
+
+    /// <summary>
     /// Gets or sets a new <c>activity_key</c> value.
     /// </summary>
     public string? ActivityKey { get; set; }

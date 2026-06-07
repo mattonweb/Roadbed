@@ -26,7 +26,7 @@ public class LoggingActivityScopeTests
         var activity = new Activity("test.activity");
         activity.Start();
 
-        var scope = new LoggingActivityScope("01TESTACTIVITYIDXXXXXXXXXX", activity, fakeScope);
+        var scope = new LoggingActivityScope("01TESTACTIVITYIDXXXXXXXXXX", DateTime.UtcNow, activity, fakeScope);
 
         // Act (When)
         scope.Dispose();
@@ -47,7 +47,8 @@ public class LoggingActivityScopeTests
         const string ActivityId = "01ACTIVITYIDABCDEFGHIJKLMN";
         var activity = new Activity("test.activity");
         activity.Start();
-        var scope = new LoggingActivityScope(ActivityId, activity, null);
+        var createdOn = new DateTime(2026, 6, 7, 12, 0, 0, DateTimeKind.Utc);
+        var scope = new LoggingActivityScope(ActivityId, createdOn, activity, null);
 
         // Act (When)
         string? traceId = scope.TraceId;
@@ -55,6 +56,7 @@ public class LoggingActivityScopeTests
 
         // Assert (Then)
         Assert.AreEqual(ActivityId, scope.ActivityId);
+        Assert.AreEqual(createdOn, scope.CreatedOn, "Scope must surface the supplied UTC created_on.");
         Assert.IsFalse(string.IsNullOrEmpty(traceId), "TraceId should be non-empty when Activity is started.");
         Assert.AreEqual(32, traceId!.Length, "W3C TraceId is 32 hex characters.");
         Assert.IsFalse(string.IsNullOrEmpty(spanId), "SpanId should be non-empty when Activity is started.");
@@ -70,7 +72,7 @@ public class LoggingActivityScopeTests
     public void TraceIdAndSpanId_NoActivity_ReturnsNull()
     {
         // Arrange (Given)
-        var scope = new LoggingActivityScope("01NOACTIVITYIDXXXXXXXXXXXX", null, null);
+        var scope = new LoggingActivityScope("01NOACTIVITYIDXXXXXXXXXXXX", DateTime.UtcNow, null, null);
 
         // Act (When) + Assert (Then)
         Assert.IsNull(scope.TraceId);
@@ -85,7 +87,7 @@ public class LoggingActivityScopeTests
     {
         // Arrange (Given) + Act (When) + Assert (Then)
         Assert.ThrowsExactly<ArgumentException>(
-            () => _ = new LoggingActivityScope("   ", null, null));
+            () => _ = new LoggingActivityScope("   ", DateTime.UtcNow, null, null));
     }
 
     #endregion Public Methods

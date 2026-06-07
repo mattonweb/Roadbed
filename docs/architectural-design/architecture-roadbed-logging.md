@@ -188,7 +188,25 @@ Two distinct paths, deliberately:
 
 ## Entities and Schema
 
-The DDL is shipped as install scripts under [src/Roadbed.Logging/Assets/Tables/](../../src/Roadbed.Logging/Assets/Tables/). Each table has both an `install_mysql.txt` and an `install_sqlite.txt`. Both files use the literal token `{SchemaPrefix}` for schema qualification — substitute either the empty string or a database name followed by a dot (`ops.`) before executing.
+The DDL is shipped as install scripts under [src/Roadbed.Logging/Assets/Tables/](../../src/Roadbed.Logging/Assets/Tables/). Each table has both an `install_mysql.txt` and an `install_sqlite.txt`. The scripts create tables **unqualified** — run them after selecting the target database (`USE logging;` on MySQL, or against the right `.db` file on SQLite). Set `LoggingOptions.Schema` in the host to match the database name so every C# repository statement qualifies tables consistently (`logging.activity`, etc.).
+
+### Partitioning and PK rules
+
+All three MySQL tables are RANGE-partitioned monthly. The partitioning column drives every other schema decision:
+
+- **`activity` and `activity_input` partition on `created_on`.** PK is `(id, created_on)` and `(activity_id, input_activity_id, created_on)` respectively. There is no standalone `UNIQUE (id)` on `activity` — MySQL requires every unique key on a partitioned InnoDB table to contain the partition column, and uniqueness of `activity.id` is guaranteed by the caller's ULID instead of by a DB constraint.
+- **`log_entries` partitions on `event_time_utc`.** PK is `(id, event_time_utc)`. Same composite-key rule.
+- **Partitioned InnoDB tables cannot have foreign keys.** The lineage references in `activity_input` are soft on purpose.
+- **120 monthly partitions are pre-created** (2026-01 .. 2035-12) plus `p_min` (catches anything pre-2026) and `pmax` (MAXVALUE catch-all). This avoids the "forward-rollover" half of partition maintenance until late 2035 — only retention drops are needed.
+- **Partition pruning requires filtering on the partition column.** Every composite index leads with the fleet filter (`application`, `activity_id`, etc.) and ends with `created_on` / `event_time_utc` so MCP / analytical queries get pruning for free when they filter on date.
+
+### UTC contract
+
+All stored timestamps are UTC. The framework enforces it on three layers:
+
+1. **`created_on` / `recorded_on` defaults** are `(UTC_TIMESTAMP(6))` (MySQL) / `strftime('%Y-%m-%dT%H:%M:%fZ','now')` (SQLite) — connection-time-zone-independent. INSERTs that omit these columns still land in UTC.
+2. **`LoggingActivityService.BeginAsync` stamps `created_on` and `last_modified_on` explicitly** with `DateTime.UtcNow` rather than relying on the DEFAULT, so `LoggingActivityScope.CreatedOn` returns the exact same value that landed in the row. Subsequent UPDATE WHEREs match on it for partition pruning.
+3. **Every framework UPDATE passes `@LastModifiedOn = DateTime.UtcNow` explicitly.** The DDL's `ON UPDATE CURRENT_TIMESTAMP(6)` clause remains as a safety net for non-framework writers, but the explicit parameter takes precedence and is connection-tz-independent.
 
 ### activity
 
@@ -207,15 +225,23 @@ One row per run. Mutable.
 - **`parameters`**, **`metrics`** — `JSON` (MySQL) / `TEXT` (SQLite); structured input config and structured output metrics respectively.
 - **`error`**, **`error_type`** — populated by `FailAsync(exception)`.
 - **Quartz block** — `scheduler_instance_id`, `fire_instance_id`, `quartz_job_name`, `quartz_job_group`, `quartz_trigger_name`, `quartz_trigger_group`. Snapshotted at `BeginAsync` time (or patched later via `UpdateAsync`) because `QRTZ_FIRED_TRIGGERS` is transient and is cleared once the trigger completes.
-- **`created_on`**, **`last_modified_on`** — server-defaulted. MySQL maintains `last_modified_on` via `ON UPDATE CURRENT_TIMESTAMP(6)`; SQLite has no equivalent, so the repository sets it explicitly.
+- **`created_on`** — the partition / retention key. Stamped explicitly by `BeginAsync` as `DateTime.UtcNow`. Defaults to `UTC_TIMESTAMP(6)` (MySQL) / `strftime` UTC (SQLite) if a non-framework writer omits the column.
+- **`last_modified_on`** — set explicitly by every framework UPDATE to `DateTime.UtcNow`; the `ON UPDATE CURRENT_TIMESTAMP(6)` clause on MySQL is a safety net only.
 
-Indexes cover the `activity_key`, parent/root, trace, `application + started_on`, `activity_type + started_on`, `status`, and `fire_instance_id` lookups that analysts and dashboards run.
+Composite indexes lead with the fleet filter and end with the partition column so MCP / analytical queries that filter on date prune naturally:
+
+- `idx_activity_app_created (application, created_on)`
+- `idx_activity_app_status_created (application, status, created_on)`
+- `idx_activity_key_created (activity_key, created_on)`
+- `idx_activity_status_created (status, created_on)`
+- `idx_activity_type_created (activity_type, created_on)`
+- Single-column lookups for parent / root / trace / fire-instance.
 
 ### activity_input
 
 The lineage DAG: "this activity consumed the output of those upstream activities."
 
-- Composite primary key (`activity_id`, `input_activity_id`).
+- Composite primary key `(activity_id, input_activity_id, created_on)` — MySQL needs the partition column in the PK.
 - `input_role` — optional free-form label (`"places"`, `"cousubs"`, `"hud-centroid"`).
 - One reverse index on `input_activity_id` for impact analysis (which downstream activities consumed *this* upstream output?).
 - Duplicate edges are silently coalesced — the repository emits `INSERT ... ON DUPLICATE KEY UPDATE` (MySQL) or `INSERT OR IGNORE` (SQLite).
@@ -225,10 +251,11 @@ The lineage DAG: "this activity consumed the output of those upstream activities
 The high-volume append-only log store.
 
 - **Composite primary key** `(id, event_time_utc)`. MySQL requires the partition key in every unique key.
-- **MySQL: RANGE-partitioned monthly** on `TO_DAYS(event_time_utc)`. Ship a partition-maintenance routine (a stored proc or a Roadbed.Scheduling job) that pre-creates next month's partition and drops partitions older than the 90-day retention window.
+- **MySQL: RANGE-partitioned monthly** on `TO_DAYS(event_time_utc)`. The install script pre-creates 120 monthly partitions; only retention drops are needed (no forward-rollover until 2035).
 - **SQLite: no partitioning.** Retention is a scheduled `DELETE FROM log_entries WHERE event_time_utc < datetime('now', '-90 days')` followed by `VACUUM`.
 - **`activity_id`** is **per row**, sampled at log time — not a uniform stamp for the whole batch. This is the core distinction from the CRUDALBT "B" tier.
 - **`message_template`** is the unrendered template (the `{OriginalFormat}` attribute on the `LogRecord`); **`properties`** is JSON of the named args. Keeping these separate lets analysts aggregate log events by template across many argument values.
+- **Indexes** are composite, leading with the fleet filter and ending with `event_time_utc`: `idx_log_activity (activity_id, event_time_utc)`, `idx_log_app_time (application, event_time_utc)`, `idx_log_app_level_time (application, log_level, event_time_utc)`, `idx_log_level_time (log_level, event_time_utc)`, plus single-column `idx_log_trace` and `idx_log_time`.
 
 ---
 
@@ -256,7 +283,18 @@ If the repository INSERT throws, the service disposes the MEL scope and stops th
 
 ### HeartbeatAsync
 
-Stamps `UtcNow` into `last_heartbeat_on` via a one-row UPDATE. Long-running steps should call this every few seconds — every iteration of a batch loop is a reasonable cadence — so that a stale heartbeat with `status = 'running'` becomes a reliable signal of a crashed process.
+Stamps `UtcNow` into `last_heartbeat_on` (and `last_modified_on`) via a one-row UPDATE. Two overloads:
+
+```csharp
+Task HeartbeatAsync(LoggingActivityScope scope, CancellationToken ct = default);
+Task HeartbeatAsync(string activityId, CancellationToken ct = default);
+```
+
+The **scope-aware overload is preferred** when the caller still holds the scope. It passes `scope.CreatedOn` into the repository, which adds `AND created_on = @CreatedOn` to the UPDATE's WHERE clause. MySQL then prunes the UPDATE to the single monthly partition that owns the row instead of probing all 120.
+
+The **id-only overload is kept for legacy / external callers** — for example, a watchdog process that found a stale heartbeat and only has the activity id. On MySQL it probes every partition.
+
+Long-running steps should call `Heartbeat` every few seconds — every iteration of a batch loop is a reasonable cadence — so that a stale heartbeat with `status = 'running'` becomes a reliable signal of a crashed process.
 
 ### UpdateAsync
 
@@ -266,7 +304,7 @@ Task UpdateAsync(
     CancellationToken cancellationToken = default);
 ```
 
-Patches only the **non-null** properties on the request onto the existing row via a `COALESCE`-driven UPDATE. Properties left at `null` preserve their existing values.
+Patches only the **non-null** properties on the request onto the existing row via a `COALESCE`-driven UPDATE. Properties left at `null` preserve their existing values. Setting `LoggingActivityUpdateRequest.CreatedOn = scope.CreatedOn` enables the same partition-pruning AND clause described above; leaving it null falls back to id-only WHERE.
 
 This is the right surface for "current state" mid-run updates — fields that may not be known at Begin time or that evolve through the run:
 
@@ -275,27 +313,23 @@ This is the right surface for "current state" mid-run updates — fields that ma
 - `RecordsImpacted` — running total.
 - The Quartz block — for callers that didn't have it at Begin time, or for jobs that re-key partway through.
 
-`UpdateAsync` deliberately excludes `Status`, `StartedOn`, `CompletedOn`, and `LastHeartbeatOn`, which have dedicated methods.
+`UpdateAsync` deliberately excludes `Status`, `StartedOn`, `CompletedOn`, and `LastHeartbeatOn`, which have dedicated methods. Every UPDATE also stamps `last_modified_on = DateTime.UtcNow` explicitly, overriding the DDL's `ON UPDATE CURRENT_TIMESTAMP(6)` safety net.
 
 ### CompleteAsync and FailAsync
 
 ```csharp
-Task CompleteAsync(
-    string activityId,
-    LoggingActivityStatus status,
-    long? recordsImpacted = null,
-    string? metricsJson = null,
-    CancellationToken cancellationToken = default);
+// Preferred: scope-aware overloads (prune to one partition on MySQL).
+Task CompleteAsync(LoggingActivityScope scope, LoggingActivityStatus status, long? recordsImpacted = null, string? metricsJson = null, CancellationToken ct = default);
+Task FailAsync(LoggingActivityScope scope, Exception error, CancellationToken ct = default);
 
-Task FailAsync(
-    string activityId,
-    Exception error,
-    CancellationToken cancellationToken = default);
+// Legacy: id-only overloads (probe every partition on MySQL; kept for external callers).
+Task CompleteAsync(string activityId, LoggingActivityStatus status, long? recordsImpacted = null, string? metricsJson = null, CancellationToken ct = default);
+Task FailAsync(string activityId, Exception error, CancellationToken ct = default);
 ```
 
 `CompleteAsync` is the terminal call for non-exception outcomes: `Succeeded`, `Canceled`, or `Skipped`. It explicitly **rejects** `Status.Failed` — that path is `FailAsync`, which records the exception message and the fully-qualified type name as well as the status.
 
-Both methods stamp `completed_on = UtcNow`.
+Both methods stamp `completed_on = UtcNow` and `last_modified_on = UtcNow` on the row.
 
 ### AddInputAsync
 
@@ -504,12 +538,36 @@ These three together make the documented host wiring (`AddRoadbedDbLogging()` be
 
 Roadbed.Logging does **not** run migrations. The DDL ships as install scripts under [src/Roadbed.Logging/Assets/Tables/](../../src/Roadbed.Logging/Assets/Tables/). Copies are also embedded in [the skill's reference](../../skills/code-roadbed-csharp/references/reference-roadbed-logging.md#ddl-install-scripts) so an AI assistant can paste them straight into a host setup script.
 
-Before executing, substitute the literal token `{SchemaPrefix}` with either the empty string (unqualified tables) or a database name followed by a dot (`ops.`). The default `LoggingOptions.Schema` is the empty string, which makes `Schema = "ops"` an explicit opt-in for MySQL production and keeps SQLite-dev frictionless.
+The scripts create tables unqualified. Run them with the target database already selected (`USE logging;` on MySQL, against the right `.db` file on SQLite). The default `LoggingOptions.Schema` is the empty string for SQLite-dev frictionlessness; in production, set it to the MySQL database name (e.g. `"logging"`) so the C# repositories qualify every statement.
 
-Retention:
+Retention windows by table:
 
-- **MySQL** — schedule a monthly job that (a) pre-creates next month's partition and (b) drops partitions whose range is older than the retention window. Roadbed.Logging does not ship the partition routine; build it as a stored proc or a Roadbed.Scheduling job. The 90-day default is per the plan; the partition layout makes that a `DROP PARTITION` instead of a table scan.
-- **SQLite** — `DELETE FROM {schema}log_entries WHERE event_time_utc < datetime('now', '-90 days');` on the same cadence. Follow with `VACUUM` (or set `PRAGMA auto_vacuum = INCREMENTAL` plus periodic `incremental_vacuum`) to reclaim disk.
+| Table            | Window     |
+| ---------------- | ---------- |
+| `log_entries`    | 90 days    |
+| `activity`       | 12 months  |
+| `activity_input` | 12 months  |
+
+Retention enforcement:
+
+- **MySQL** — schedule a recurring partition-drop routine that, for each table, executes `ALTER TABLE {schema}.<table> DROP PARTITION p_YYYYMM` for every partition whose entire date range falls outside the retention window. Drops are atomic, sub-second on empty partitions, and reclaim disk immediately. Because the install scripts pre-create 120 monthly partitions through 2035-12, **no forward-rollover step is needed until that decade is approaching exhaustion** — only the drop side.
+- **Roadbed.Logging does not currently ship the drop routine.** The consuming application provides it (a stored proc invoked by a Roadbed.Scheduling job, or a MySQL EVENT). A future framework sprint may ship a default routine plus a Roadbed.Scheduling job that calls it; until then, the operator owns scheduling.
+- **SQLite** — equivalent DELETE statements on the same cadence:
+  ```sql
+  DELETE FROM {schema}log_entries     WHERE event_time_utc < datetime('now', '-90 days');
+  DELETE FROM {schema}activity_input  WHERE created_on     < datetime('now', '-12 months');
+  DELETE FROM {schema}activity        WHERE created_on     < datetime('now', '-12 months');
+  ```
+  Follow with `VACUUM` (or set `PRAGMA auto_vacuum = INCREMENTAL` plus periodic `incremental_vacuum`) to reclaim disk.
+
+## MCP / Analytical Query Advice
+
+The shipped index layout drives the query patterns that prune efficiently:
+
+- **Activity-table queries should filter on `created_on`.** The composite indexes are ordered `(fleet_filter…, created_on)`, so a query like `WHERE application = ? AND status = ? AND created_on BETWEEN ? AND ?` picks the right index AND prunes to the relevant monthly partitions.
+- **Log-table queries should filter on `event_time_utc`.** For per-activity log pulls, pass the activity's own `started_on..completed_on` window — the query reads at most a few partitions even when the global log volume is large.
+- **`created_on` is the partition / retention timestamp.** Use it in WHERE clauses for pruning. Display `started_on` / `completed_on` for activity timing (those are the wall-clock timestamps the app supplied). Duration is `completed_on - started_on`; `created_on` is close but is the row-insert timestamp and may be slightly later than `started_on` if the INSERT is delayed.
+- **Composite-PK lookups by id alone still work** (the PK leads with `id`), but UPDATEs that pass `AND created_on = ?` prune to one partition instead of probing all 120. The framework's `LoggingActivityService` does this automatically when the scope-aware overloads are used.
 
 ---
 
@@ -576,7 +634,11 @@ public sealed class FooIngestionJob : BaseSchedulingJob<FooIngestionJob>
             await foreach (var batch in this._loader.StreamAsync(activityId, cancellationToken))
             {
                 rows += await this._loader.WriteAsync(batch, cancellationToken);
-                await this._activities.HeartbeatAsync(activityId, cancellationToken);
+
+                // Prefer the scope-aware overload — it includes scope.CreatedOn
+                // in the UPDATE WHERE clause so MySQL prunes to one monthly
+                // partition instead of probing all 120.
+                await this._activities.HeartbeatAsync(scope, cancellationToken);
             }
 
             // Record the Bronze inputs this Silver run consumed.
@@ -586,7 +648,7 @@ public sealed class FooIngestionJob : BaseSchedulingJob<FooIngestionJob>
             }
 
             await this._activities.CompleteAsync(
-                activityId,
+                scope,
                 LoggingActivityStatus.Succeeded,
                 recordsImpacted: rows,
                 cancellationToken: cancellationToken);
@@ -595,7 +657,7 @@ public sealed class FooIngestionJob : BaseSchedulingJob<FooIngestionJob>
         }
         catch (Exception ex)
         {
-            await this._activities.FailAsync(activityId, ex, CancellationToken.None);
+            await this._activities.FailAsync(scope, ex, CancellationToken.None);
             throw;
         }
     }

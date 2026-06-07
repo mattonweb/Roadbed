@@ -32,8 +32,10 @@ activity id like the CRUDALBT "B" tier.
 - **MUST** generate the activity ULID in the consuming application — Roadbed.Logging does **not** generate identifiers. Pass the same ULID you used for `IAsyncBulkInsertOperation.BulkInsertAsync` calls during the run.
 - **MUST** set `LoggingOptions.Application` (and ideally `Environment`) so every row carries identifying provenance. The exporter stamps these onto every `LoggingLogEntry`.
 - **MUST** set `LoggingOptions.Schema` to the MySQL database name (e.g. `"ops"`, `"platform"`) in production. The default is the empty string for SQLite-dev friendliness.
-- **MUST** install the three table DDL scripts (`activity`, `activity_input`, `log_entries`) against the target schema **before** the host starts. Roadbed.Logging does not run schema migrations.
-- **MUST** schedule a monthly partition-maintenance job in MySQL that (a) pre-creates next month's partition and (b) drops partitions whose range falls outside the 90-day retention window. On SQLite, run `DELETE FROM log_entries WHERE event_time_utc < datetime('now', '-90 days');` on the same cadence.
+- **MUST** install the three table DDL scripts (`activity`, `activity_input`, `log_entries`) against the target schema **before** the host starts. Roadbed.Logging does not run schema migrations. The shipped MySQL scripts pre-create 10 years of monthly partitions (2026-01 .. 2035-12) on all three tables — no forward-rollover routine is needed until late 2035.
+- **MUST** schedule a partition-drop routine on MySQL: drop partitions older than **12 months** for `activity` and `activity_input`, and older than **90 days** for `log_entries`. **Roadbed.Logging does not ship this routine** — the consuming app builds it (a stored proc invoked by a Roadbed.Scheduling job, or a MySQL EVENT). On SQLite, run the equivalent `DELETE FROM …` statements on the same cadence.
+- **MUST** pass the `LoggingActivityScope` to `HeartbeatAsync` / `CompleteAsync` / `FailAsync` instead of the bare activity id whenever the scope is in scope. The scope carries the row's `created_on`, which the framework includes in the UPDATE's WHERE clause so MySQL prunes to the single monthly partition that owns the row. The id-only overloads are kept for legacy / external callers but probe every monthly partition (~120).
+- **MUST** treat all stored timestamps as UTC. The DDL defaults `created_on` and `recorded_on` to `UTC_TIMESTAMP(6)` (MySQL) / `strftime('%Y-%m-%dT%H:%M:%fZ','now')` (SQLite); the framework's UPDATE path stamps `last_modified_on` with `DateTime.UtcNow` on every call. `last_modified_on`'s `ON UPDATE CURRENT_TIMESTAMP(6)` clause is a safety net only — the explicit set wins.
 - **MUST** call `service.CompleteAsync(...)` or `service.FailAsync(...)` explicitly when a run ends. Disposing the `LoggingActivityScope` pops the ambient MEL scope and stops the diagnostic Activity, but it does **not** record a terminal status.
 - **MUST** use structured log templates (`logger.LogInformation("Loaded {RowCount}", count)`) — the exporter splits the template (stored as `message_template`) from the named args (stored as `properties` JSON) for downstream aggregation. Interpolated `$"..."` strings produce a single rendered message with no template.
 
@@ -46,6 +48,9 @@ activity id like the CRUDALBT "B" tier.
 - **MUST NOT** log from a category that overlaps `LoggingOptions.RecursionGuardCategories` and expect the entry to be persisted. Categories under `Roadbed.Logging`, `Roadbed.Data`, `Roadbed.Data.MySql`, `Roadbed.Data.Sqlite`, and `MySqlConnector` are dropped to prevent the database write path from logging through itself.
 - **MUST NOT** pass `LoggingActivityStatus.Failed` to `CompleteAsync`. Use `FailAsync(activityId, exception)` instead — it records the exception message and type as well as the terminal status.
 - **MUST NOT** read `IConfiguration` from inside Roadbed.Logging-aware code expecting the library to honor it. The library only sees `LoggingOptions` and `ILoggingDatabaseFactory` from DI.
+- **MUST NOT** add a standalone `UNIQUE` on `activity.id` or any other partitioned-table single column. MySQL requires every unique key on a partitioned InnoDB table to contain the partition column, so the only PK is the composite one. Uniqueness of `activity.id` is guaranteed by the caller's ULID, not by a DB constraint.
+- **MUST NOT** add foreign keys between the three tables (or from them to anything else). Partitioned InnoDB tables cannot have FKs. The lineage edges in `activity_input` are soft references on purpose.
+- **MUST NOT** rely on the `last_modified_on` server-side `ON UPDATE` trigger to be UTC. The framework's UPDATE statements pass an explicit `@LastModifiedOn = DateTime.UtcNow` parameter that overrides the trigger. Custom queries that update the row outside the framework should do the same — or set the connection's session `time_zone` to `+00:00`.
 - **MUST NOT** re-register `LoggingChannel` in DI. `InstallLogging` registers it as a process-wide shared instance built from `LoggingOptions`; the host writer (in the host container) and every producer-side OTel exporter (in any container — host, `ServiceLocator` snapshot, or test fixture) all need to resolve the **same** object. Overwriting that registration in `Program.cs` (e.g. via `services.AddSingleton<LoggingChannel>(new LoggingChannel(...))`) is what creates the "`activity` rows write but `log_entries` stays empty" symptom.
 
 ## Consuming-application host wiring
@@ -105,7 +110,17 @@ Set `ILoggingDatabaseFactory.Connecion.ConnectionStringType` to one of:
 
 ### Database setup (MySQL example)
 
-Apply the install script under `src/Roadbed.Logging/Assets/Tables/<table>/install_mysql.txt` (or paste the consolidated copies further down this reference) against your target database. The default DDL uses `{SchemaPrefix}` as a placeholder; substitute `logging.` (or your chosen schema name) before executing.
+Apply the install script under `src/Roadbed.Logging/Assets/Tables/<table>/install_mysql.txt` (or paste the consolidated copies further down this reference) against your target database. The DDL creates tables **unqualified** — `CREATE TABLE activity (...)`, not `CREATE TABLE logging.activity (...)`. Select the target database before executing:
+
+```sql
+CREATE DATABASE IF NOT EXISTS logging
+    DEFAULT CHARACTER SET utf8mb4
+    DEFAULT COLLATE utf8mb4_unicode_ci;
+USE logging;
+-- then run install_mysql.txt for each of the three tables
+```
+
+In the host, set `LoggingOptions.Schema = "logging"` so every C# repository statement qualifies the tables as `logging.activity` etc.
 
 The DB user the app runs as needs `INSERT`, `UPDATE`, and `SELECT` privileges on all three tables — `activity` rows writing successfully only proves the activity path's grants exist; `log_entries` can fail silently if the same user lacks INSERT there.
 
@@ -245,8 +260,11 @@ public sealed class FooIngestionJob : BaseSchedulingJob<FooIngestionJob>
         {
             int rows = await this._loader.LoadAsync(activityId, cancellationToken);
 
+            // Prefer the scope-aware overload — it includes scope.CreatedOn
+            // in the UPDATE WHERE clause so MySQL prunes to one monthly
+            // partition instead of probing all 120.
             await this._activities.CompleteAsync(
-                activityId,
+                scope,
                 LoggingActivityStatus.Succeeded,
                 recordsImpacted: rows,
                 cancellationToken: cancellationToken);
@@ -255,7 +273,7 @@ public sealed class FooIngestionJob : BaseSchedulingJob<FooIngestionJob>
         }
         catch (Exception ex)
         {
-            await this._activities.FailAsync(activityId, ex, CancellationToken.None);
+            await this._activities.FailAsync(scope, ex, CancellationToken.None);
             throw;
         }
     }
@@ -268,7 +286,12 @@ public sealed class FooIngestionJob : BaseSchedulingJob<FooIngestionJob>
 while (await reader.ReadBatchAsync(cancellationToken) is { } batch)
 {
     await this._sink.WriteAsync(batch, cancellationToken);
-    await this._activities.HeartbeatAsync(activityId, cancellationToken);
+
+    // Pass the scope — it carries created_on so the UPDATE prunes to
+    // one MySQL partition. The string-id overload is kept for callers
+    // that only have the activity id (e.g. a watchdog process); on
+    // MySQL it probes every monthly partition.
+    await this._activities.HeartbeatAsync(scope, cancellationToken);
 }
 ```
 
@@ -278,7 +301,8 @@ while (await reader.ReadBatchAsync(cancellationToken) is { } batch)
 await this._activities.UpdateAsync(
     new LoggingActivityUpdateRequest
     {
-        ActivityId = activityId,
+        ActivityId = scope.ActivityId,
+        CreatedOn  = scope.CreatedOn,           // enables MySQL partition pruning
         Target = $"ops.{table}",                // discovered after Begin
         ParametersJson = JsonConvert.SerializeObject(currentParameters),
         RecordsImpacted = runningTotal,
@@ -354,114 +378,48 @@ await activities.CompleteAsync(id, LoggingActivityStatus.Failed);  // throws Arg
 
 ## DDL install scripts
 
-These are copies of the source-of-truth files in
-`src/Roadbed.Logging/Assets/Tables/<table>/install_<provider>.txt`. Before
-executing, substitute the literal token `{SchemaPrefix}` with either the
-empty string (unqualified) or a database name followed by a dot (`ops.`).
+The source-of-truth files live under
+`src/Roadbed.Logging/Assets/Tables/<table>/install_<provider>.txt` — six
+files, three tables × two providers. The scripts create tables
+**unqualified**; run them after selecting the target database (`USE logging;`
+on MySQL, or against the right `.db` file on SQLite). Set
+`LoggingOptions.Schema` in the host to match the database name so C#
+statements end up qualified consistently (`logging.activity`, etc.).
 
-### MySQL / MariaDB
+> **The MySQL scripts are long.** Each of the three tables ships with 120
+> pre-created monthly partitions covering 2026-01 .. 2035-12, plus `p_min`
+> and `pmax`. An AI assistant generating an install script for a consumer
+> should use the **Read** tool against the asset files rather than rely on
+> what is reproduced inline below.
 
-#### activity
+### Schema summary (MySQL)
 
-```sql
-CREATE TABLE {SchemaPrefix}activity (
-     id                    CHAR(26) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
-    ,parent_activity_id    CHAR(26) CHARACTER SET ascii COLLATE ascii_bin NULL
-    ,root_activity_id      CHAR(26) CHARACTER SET ascii COLLATE ascii_bin NULL
-    ,trace_id              CHAR(32) CHARACTER SET ascii COLLATE ascii_bin NULL
-    ,span_id               CHAR(16) CHARACTER SET ascii COLLATE ascii_bin NULL
-    ,activity_key          VARCHAR(100)  NULL
-    ,application           VARCHAR(100)  NOT NULL
-    ,environment           VARCHAR(20)   NULL
-    ,activity_type         VARCHAR(50)   NOT NULL
-    ,target                VARCHAR(255)  NULL
-    ,status                ENUM('pending','running','succeeded','failed','canceled','skipped') NOT NULL DEFAULT 'pending'
-    ,started_on            DATETIME(6)   NULL
-    ,completed_on          DATETIME(6)   NULL
-    ,last_heartbeat_on     DATETIME(6)   NULL
-    ,records_impacted      BIGINT UNSIGNED NULL
-    ,parameters            JSON          NULL
-    ,metrics               JSON          NULL
-    ,error                 TEXT          NULL
-    ,error_type            VARCHAR(255)  NULL
-    ,scheduler_instance_id VARCHAR(200)  NULL
-    ,fire_instance_id      VARCHAR(95)   NULL
-    ,quartz_job_name       VARCHAR(200)  NULL
-    ,quartz_job_group      VARCHAR(200)  NULL
-    ,quartz_trigger_name   VARCHAR(200)  NULL
-    ,quartz_trigger_group  VARCHAR(200)  NULL
-    ,host                  VARCHAR(255)  NULL
-    ,process_id            INT           NULL
-    ,created_by            BIGINT UNSIGNED NULL
-    ,created_on            DATETIME(6)   NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
-    ,last_modified_on      DATETIME(6)   NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6)
-    ,PRIMARY KEY (id)
-    ,KEY idx_activity_key (activity_key)
-    ,KEY idx_activity_parent (parent_activity_id)
-    ,KEY idx_activity_root (root_activity_id)
-    ,KEY idx_activity_trace (trace_id)
-    ,KEY idx_activity_app_started (application, started_on)
-    ,KEY idx_activity_type_started (activity_type, started_on)
-    ,KEY idx_activity_status (status)
-    ,KEY idx_activity_fire (fire_instance_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-```
+| Table            | PK                                         | Partition key                       | Retention | Pre-created |
+| ---------------- | ------------------------------------------ | ----------------------------------- | --------- | ----------- |
+| `activity`       | `(id, created_on)`                         | `RANGE (TO_DAYS(created_on))`       | 12 months | 120 months  |
+| `activity_input` | `(activity_id, input_activity_id, created_on)` | `RANGE (TO_DAYS(created_on))`   | 12 months | 120 months  |
+| `log_entries`    | `(id, event_time_utc)`                     | `RANGE (TO_DAYS(event_time_utc))`   | 90 days   | 120 months  |
 
-#### activity_input
+Composite-PK rules (load-bearing):
+
+- Every UNIQUE/PRIMARY key on a partitioned InnoDB table must contain the partition column.
+- No standalone `UNIQUE (id)` on any of the three tables — the composite PK is the only uniqueness constraint. Uniqueness of `activity.id` is the caller's responsibility (ULIDs are globally unique by construction).
+- Partitioned InnoDB tables cannot have foreign keys. The lineage references in `activity_input` are soft on purpose.
+- Partition pruning only happens when the query filters on the partition column. Every composite index leads with the fleet filter (`application`, `activity_id`, etc.) and ends with the partition column (`created_on` / `event_time_utc`).
+
+### UTC contract
+
+- `created_on`, `recorded_on` — server-side `DEFAULT (UTC_TIMESTAMP(6))` (MySQL) / `strftime('%Y-%m-%dT%H:%M:%fZ','now')` (SQLite). Connection-time-zone-independent — important for the partition key.
+- `last_modified_on` — declares `ON UPDATE CURRENT_TIMESTAMP(6)` as a safety net, but the framework's UPDATE path passes an explicit `@LastModifiedOn = DateTime.UtcNow` parameter that overrides it. The column stays UTC even when the session `time_zone` is not.
+
+### SQLite (no partitioning)
+
+SQLite has no partitioning support. Retention is a scheduled `DELETE` (`activity` / `activity_input` after 12 months; `log_entries` after 90 days). The DDL is short:
+
+#### activity (SQLite)
 
 ```sql
-CREATE TABLE {SchemaPrefix}activity_input (
-     activity_id        CHAR(26) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
-    ,input_activity_id  CHAR(26) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
-    ,input_role         VARCHAR(50) NULL
-    ,created_on         DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
-    ,PRIMARY KEY (activity_id, input_activity_id)
-    ,KEY idx_activity_input_reverse (input_activity_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-```
-
-#### log_entries
-
-```sql
-CREATE TABLE {SchemaPrefix}log_entries (
-     id               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT
-    ,event_time_utc   DATETIME(6)   NOT NULL
-    ,recorded_on      DATETIME(6)   NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
-    ,log_level        TINYINT UNSIGNED NOT NULL
-    ,category         VARCHAR(255)  NOT NULL
-    ,event_id         INT           NULL
-    ,event_name       VARCHAR(255)  NULL
-    ,message          TEXT          NOT NULL
-    ,message_template TEXT          NULL
-    ,properties       JSON          NULL
-    ,exception        TEXT          NULL
-    ,exception_type   VARCHAR(255)  NULL
-    ,activity_id      CHAR(26) CHARACTER SET ascii COLLATE ascii_bin NULL
-    ,trace_id         CHAR(32) CHARACTER SET ascii COLLATE ascii_bin NULL
-    ,span_id          CHAR(16) CHARACTER SET ascii COLLATE ascii_bin NULL
-    ,application      VARCHAR(100)  NOT NULL
-    ,environment      VARCHAR(20)   NULL
-    ,host             VARCHAR(255)  NULL
-    ,process_id       INT           NULL
-    ,PRIMARY KEY (id, event_time_utc)
-    ,KEY idx_log_activity (activity_id)
-    ,KEY idx_log_trace (trace_id)
-    ,KEY idx_log_app_time (application, event_time_utc)
-    ,KEY idx_log_level_time (log_level, event_time_utc)
-    ,KEY idx_log_time (event_time_utc)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-PARTITION BY RANGE (TO_DAYS(event_time_utc)) (
-     PARTITION p_min VALUES LESS THAN (TO_DAYS('2026-01-01'))
-    ,PARTITION pmax  VALUES LESS THAN MAXVALUE
-);
-```
-
-### SQLite
-
-#### activity
-
-```sql
-CREATE TABLE {SchemaPrefix}activity (
+CREATE TABLE activity (
      id                    TEXT     NOT NULL COLLATE BINARY
     ,parent_activity_id    TEXT     NULL     COLLATE BINARY
     ,root_activity_id      TEXT     NULL     COLLATE BINARY
@@ -496,20 +454,21 @@ CREATE TABLE {SchemaPrefix}activity (
     ,PRIMARY KEY (id)
 );
 
-CREATE INDEX idx_activity_key             ON {SchemaPrefix}activity (activity_key);
-CREATE INDEX idx_activity_parent          ON {SchemaPrefix}activity (parent_activity_id);
-CREATE INDEX idx_activity_root            ON {SchemaPrefix}activity (root_activity_id);
-CREATE INDEX idx_activity_trace           ON {SchemaPrefix}activity (trace_id);
-CREATE INDEX idx_activity_app_started     ON {SchemaPrefix}activity (application, started_on);
-CREATE INDEX idx_activity_type_started    ON {SchemaPrefix}activity (activity_type, started_on);
-CREATE INDEX idx_activity_status          ON {SchemaPrefix}activity (status);
-CREATE INDEX idx_activity_fire            ON {SchemaPrefix}activity (fire_instance_id);
+CREATE INDEX idx_activity_app_created        ON activity (application, created_on);
+CREATE INDEX idx_activity_app_status_created ON activity (application, status, created_on);
+CREATE INDEX idx_activity_key_created        ON activity (activity_key, created_on);
+CREATE INDEX idx_activity_status_created     ON activity (status, created_on);
+CREATE INDEX idx_activity_type_created       ON activity (activity_type, created_on);
+CREATE INDEX idx_activity_parent             ON activity (parent_activity_id);
+CREATE INDEX idx_activity_root               ON activity (root_activity_id);
+CREATE INDEX idx_activity_trace              ON activity (trace_id);
+CREATE INDEX idx_activity_fire               ON activity (fire_instance_id);
 ```
 
-#### activity_input
+#### activity_input (SQLite)
 
 ```sql
-CREATE TABLE {SchemaPrefix}activity_input (
+CREATE TABLE activity_input (
      activity_id        TEXT     NOT NULL COLLATE BINARY
     ,input_activity_id  TEXT     NOT NULL COLLATE BINARY
     ,input_role         TEXT     NULL
@@ -517,13 +476,13 @@ CREATE TABLE {SchemaPrefix}activity_input (
     ,PRIMARY KEY (activity_id, input_activity_id)
 );
 
-CREATE INDEX idx_activity_input_reverse ON {SchemaPrefix}activity_input (input_activity_id);
+CREATE INDEX idx_activity_input_reverse ON activity_input (input_activity_id);
 ```
 
-#### log_entries
+#### log_entries (SQLite)
 
 ```sql
-CREATE TABLE {SchemaPrefix}log_entries (
+CREATE TABLE log_entries (
      id               INTEGER  NOT NULL PRIMARY KEY AUTOINCREMENT
     ,event_time_utc   DATETIME NOT NULL
     ,recorded_on      DATETIME NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
@@ -545,19 +504,32 @@ CREATE TABLE {SchemaPrefix}log_entries (
     ,process_id       INTEGER  NULL
 );
 
-CREATE INDEX idx_log_activity   ON {SchemaPrefix}log_entries (activity_id);
-CREATE INDEX idx_log_trace      ON {SchemaPrefix}log_entries (trace_id);
-CREATE INDEX idx_log_app_time   ON {SchemaPrefix}log_entries (application, event_time_utc);
-CREATE INDEX idx_log_level_time ON {SchemaPrefix}log_entries (log_level, event_time_utc);
-CREATE INDEX idx_log_time       ON {SchemaPrefix}log_entries (event_time_utc);
+CREATE INDEX idx_log_activity       ON log_entries (activity_id, event_time_utc);
+CREATE INDEX idx_log_trace          ON log_entries (trace_id);
+CREATE INDEX idx_log_app_time       ON log_entries (application, event_time_utc);
+CREATE INDEX idx_log_app_level_time ON log_entries (application, log_level, event_time_utc);
+CREATE INDEX idx_log_level_time     ON log_entries (log_level, event_time_utc);
+CREATE INDEX idx_log_time           ON log_entries (event_time_utc);
 ```
 
 ### Retention
 
-- **MySQL** — schedule a monthly job that pre-creates next month's partition and drops every partition whose range is older than the retention window. Roadbed.Logging does not ship the partition routine; build it as a stored proc or a Roadbed.Scheduling job.
-- **SQLite** — schedule the same cadence to run:
+- **MySQL**, all three tables — schedule a partition-drop routine to `ALTER TABLE … DROP PARTITION p_YYYYMM` for every partition whose entire date range falls outside the retention window:
+  - `activity`, `activity_input` → 12 months.
+  - `log_entries` → 90 days.
+  No forward-rollover routine is needed until 2035 because the install scripts pre-create the full 10-year run. Roadbed.Logging does **not** ship the drop routine — build it as a stored proc invoked by a Roadbed.Scheduling job, or as a MySQL EVENT, in the consuming application.
+- **SQLite**, all three tables — schedule equivalent DELETE statements:
   ```sql
-  DELETE FROM {SchemaPrefix}log_entries
-  WHERE event_time_utc < datetime('now', '-90 days');
+  DELETE FROM log_entries     WHERE event_time_utc < datetime('now', '-90 days');
+  DELETE FROM activity_input  WHERE created_on     < datetime('now', '-12 months');
+  DELETE FROM activity        WHERE created_on     < datetime('now', '-12 months');
   ```
   Follow with `VACUUM` (or set `PRAGMA auto_vacuum = INCREMENTAL` plus periodic `incremental_vacuum`) to reclaim disk.
+
+## MCP / analytical query advice
+
+The activity tables are partitioned on `created_on`; `log_entries` on `event_time_utc`. Tools that query these tables — including the consuming-app "logging analyst" MCP — should:
+
+- **Filter every activity-table query on `created_on`** to give MySQL a chance to prune. The composite indexes are ordered `(fleet_filter…, created_on)` so range filters compose naturally.
+- **Filter every log-table query on `event_time_utc`** for the same reason. For "fetch all logs for activity X" pulls, pass the activity's own `started_on..completed_on` window so the query prunes by month.
+- **Display `started_on` / `completed_on`** for activity timing — those are the app-supplied wall-clock timestamps. Compute durations from them. `created_on` is the row-insert timestamp and is used for partitioning / retention only.

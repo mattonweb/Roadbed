@@ -35,7 +35,11 @@ internal interface ILoggingActivityRepository
     /// <returns>A task that completes when the row has been patched.</returns>
     /// <remarks>
     /// Properties left at <c>null</c> on <paramref name="request"/> preserve
-    /// their existing values via a <c>COALESCE</c>-driven UPDATE.
+    /// their existing values via a <c>COALESCE</c>-driven UPDATE. When
+    /// <see cref="LoggingActivityUpdateRequest.CreatedOn"/> is set, the
+    /// generated SQL includes <c>AND created_on = @CreatedOn</c> in the
+    /// WHERE clause so MySQL prunes to the one monthly partition that
+    /// owns the row instead of probing every partition.
     /// </remarks>
     Task UpdateCurrentStateAsync(
         LoggingActivityUpdateRequest request,
@@ -45,11 +49,13 @@ internal interface ILoggingActivityRepository
     /// Stamps the supplied timestamp into the <c>last_heartbeat_on</c> column.
     /// </summary>
     /// <param name="activityId">Identifier of the activity row to update.</param>
+    /// <param name="createdOn">When supplied, the SQL adds <c>AND created_on = @CreatedOn</c> so MySQL prunes the UPDATE to a single monthly partition. Pass <c>null</c> to fall back to the legacy single-column WHERE (probes every partition).</param>
     /// <param name="heartbeatOn">UTC moment of the heartbeat.</param>
     /// <param name="cancellationToken">Token to notify when the operation should be canceled.</param>
     /// <returns>A task that completes when the heartbeat has been recorded.</returns>
     Task RecordHeartbeatAsync(
         string activityId,
+        DateTime? createdOn,
         DateTime heartbeatOn,
         CancellationToken cancellationToken = default);
 
@@ -57,6 +63,7 @@ internal interface ILoggingActivityRepository
     /// Marks the activity row as terminal with the supplied status.
     /// </summary>
     /// <param name="activityId">Identifier of the activity row to update.</param>
+    /// <param name="createdOn">When supplied, the SQL adds <c>AND created_on = @CreatedOn</c> so MySQL prunes the UPDATE to a single monthly partition. Pass <c>null</c> to fall back to the legacy single-column WHERE.</param>
     /// <param name="status">Terminal status to record.</param>
     /// <param name="completedOn">UTC moment the activity completed.</param>
     /// <param name="recordsImpacted">Optional headline count of records produced or affected.</param>
@@ -65,6 +72,7 @@ internal interface ILoggingActivityRepository
     /// <returns>A task that completes when the row has been finalized.</returns>
     Task CompleteAsync(
         string activityId,
+        DateTime? createdOn,
         LoggingActivityStatus status,
         DateTime completedOn,
         long? recordsImpacted,
@@ -76,6 +84,7 @@ internal interface ILoggingActivityRepository
     /// and records the captured exception.
     /// </summary>
     /// <param name="activityId">Identifier of the activity row to update.</param>
+    /// <param name="createdOn">When supplied, the SQL adds <c>AND created_on = @CreatedOn</c> so MySQL prunes the UPDATE to a single monthly partition. Pass <c>null</c> to fall back to the legacy single-column WHERE.</param>
     /// <param name="completedOn">UTC moment the failure was recorded.</param>
     /// <param name="error">Rendered exception message.</param>
     /// <param name="errorType">Fully-qualified type name of the captured exception.</param>
@@ -83,6 +92,7 @@ internal interface ILoggingActivityRepository
     /// <returns>A task that completes when the row has been finalized.</returns>
     Task FailAsync(
         string activityId,
+        DateTime? createdOn,
         DateTime completedOn,
         string error,
         string errorType,

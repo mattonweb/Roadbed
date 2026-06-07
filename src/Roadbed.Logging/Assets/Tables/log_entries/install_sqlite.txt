@@ -3,16 +3,27 @@
 -- High-volume append-only log store. Each row carries its own originating
 -- activity_id sampled at log time (no uniform stamping).
 --
+-- Run this script against your target SQLite database file. The table
+-- is created unqualified.
+--
 -- SQLite has no native partitioning. Apply retention by running, on a
 -- monthly schedule:
---   DELETE FROM {SchemaPrefix}log_entries
+--   DELETE FROM log_entries
 --   WHERE event_time_utc < datetime('now', '-90 days');
 -- Follow with VACUUM (or pragma incremental_vacuum) if disk reclaim is
 -- desired.
 --
--- Substitute the literal token {SchemaPrefix} before executing.
+-- Index layout mirrors the MySQL composite indexes (fleet filter +
+-- event_time_utc) so MCP / log-search queries that filter by date range
+-- use the same WHERE shape across both providers.
+--
+-- UTC contract
+-- ============
+-- event_time_utc is supplied by the app (already UTC).
+-- recorded_on defaults to strftime('%Y-%m-%dT%H:%M:%fZ','now') which
+-- SQLite always evaluates in UTC.
 
-CREATE TABLE {SchemaPrefix}log_entries (
+CREATE TABLE log_entries (
      id               INTEGER  NOT NULL PRIMARY KEY AUTOINCREMENT
     ,event_time_utc   DATETIME NOT NULL
     ,recorded_on      DATETIME NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
@@ -34,8 +45,9 @@ CREATE TABLE {SchemaPrefix}log_entries (
     ,process_id       INTEGER  NULL
 );
 
-CREATE INDEX idx_log_activity   ON {SchemaPrefix}log_entries (activity_id);
-CREATE INDEX idx_log_trace      ON {SchemaPrefix}log_entries (trace_id);
-CREATE INDEX idx_log_app_time   ON {SchemaPrefix}log_entries (application, event_time_utc);
-CREATE INDEX idx_log_level_time ON {SchemaPrefix}log_entries (log_level, event_time_utc);
-CREATE INDEX idx_log_time       ON {SchemaPrefix}log_entries (event_time_utc);
+CREATE INDEX idx_log_activity       ON log_entries (activity_id, event_time_utc);
+CREATE INDEX idx_log_trace          ON log_entries (trace_id);
+CREATE INDEX idx_log_app_time       ON log_entries (application, event_time_utc);
+CREATE INDEX idx_log_app_level_time ON log_entries (application, log_level, event_time_utc);
+CREATE INDEX idx_log_level_time     ON log_entries (log_level, event_time_utc);
+CREATE INDEX idx_log_time           ON log_entries (event_time_utc);

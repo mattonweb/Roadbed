@@ -24,18 +24,35 @@ internal interface ILoggingActivityService
     /// </summary>
     /// <param name="request">Initial values for the new activity row. The caller supplies the ULID identifier.</param>
     /// <param name="cancellationToken">Token to notify when the operation should be canceled.</param>
-    /// <returns>A disposable handle whose lifetime defines the ambient scope. Dispose to pop the scope; call <see cref="CompleteAsync"/> or <see cref="FailAsync"/> to mark the row terminal.</returns>
+    /// <returns>A disposable handle whose lifetime defines the ambient scope. Dispose to pop the scope; call <c>CompleteAsync</c> or <c>FailAsync</c> to mark the row terminal.</returns>
     Task<LoggingActivityScope> BeginAsync(
         LoggingActivityBeginRequest request,
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Stamps <c>UtcNow</c> into the <c>last_heartbeat_on</c> column of the
+    /// activity row identified by <paramref name="scope"/>.
+    /// </summary>
+    /// <param name="scope">Scope returned by <see cref="BeginAsync"/>. Carries the row's <c>created_on</c> so the UPDATE prunes to one MySQL partition.</param>
+    /// <param name="cancellationToken">Token to notify when the operation should be canceled.</param>
+    /// <returns>A task that completes when the heartbeat has been recorded.</returns>
+    Task HeartbeatAsync(
+        LoggingActivityScope scope,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Stamps <c>UtcNow</c> into the <c>last_heartbeat_on</c> column of an
-    /// existing activity row.
+    /// existing activity row, identified by id only.
     /// </summary>
     /// <param name="activityId">Identifier of the activity row to update.</param>
     /// <param name="cancellationToken">Token to notify when the operation should be canceled.</param>
     /// <returns>A task that completes when the heartbeat has been recorded.</returns>
+    /// <remarks>
+    /// Prefer the <see cref="HeartbeatAsync(LoggingActivityScope, CancellationToken)"/>
+    /// overload when the caller still holds the scope — this id-only path
+    /// causes MySQL to probe every defined monthly partition (about 120)
+    /// rather than pruning to the single partition that owns the row.
+    /// </remarks>
     Task HeartbeatAsync(
         string activityId,
         CancellationToken cancellationToken = default);
@@ -44,7 +61,7 @@ internal interface ILoggingActivityService
     /// Patches the supplied non-<c>null</c> "current state" fields onto an
     /// existing activity row.
     /// </summary>
-    /// <param name="request">The patch request. Null properties preserve their existing values.</param>
+    /// <param name="request">The patch request. Null properties preserve their existing values. Setting <see cref="LoggingActivityUpdateRequest.CreatedOn"/> enables partition pruning.</param>
     /// <param name="cancellationToken">Token to notify when the operation should be canceled.</param>
     /// <returns>A task that completes when the patch has been applied.</returns>
     Task UpdateAsync(
@@ -52,14 +69,36 @@ internal interface ILoggingActivityService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Marks the activity row terminal with the supplied non-<see cref="LoggingActivityStatus.Failed"/> status.
+    /// Marks the activity row terminal with the supplied
+    /// non-<see cref="LoggingActivityStatus.Failed"/> status.
     /// </summary>
-    /// <param name="activityId">Identifier of the activity row to finalize.</param>
-    /// <param name="status">Terminal status to record. Use <see cref="FailAsync"/> for exception-driven failures.</param>
+    /// <param name="scope">Scope returned by <see cref="BeginAsync"/>. Carries the row's <c>created_on</c> so the UPDATE prunes to one MySQL partition.</param>
+    /// <param name="status">Terminal status to record. Use <see cref="FailAsync(LoggingActivityScope, Exception, CancellationToken)"/> for exception-driven failures.</param>
     /// <param name="recordsImpacted">Optional headline count of records produced or affected during the run.</param>
     /// <param name="metricsJson">Optional metrics JSON to persist alongside the terminal status.</param>
     /// <param name="cancellationToken">Token to notify when the operation should be canceled.</param>
     /// <returns>A task that completes when the row has been finalized.</returns>
+    Task CompleteAsync(
+        LoggingActivityScope scope,
+        LoggingActivityStatus status,
+        long? recordsImpacted = null,
+        string? metricsJson = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Marks the activity row terminal, identified by id only.
+    /// </summary>
+    /// <param name="activityId">Identifier of the activity row to finalize.</param>
+    /// <param name="status">Terminal status to record.</param>
+    /// <param name="recordsImpacted">Optional headline count of records produced or affected during the run.</param>
+    /// <param name="metricsJson">Optional metrics JSON to persist alongside the terminal status.</param>
+    /// <param name="cancellationToken">Token to notify when the operation should be canceled.</param>
+    /// <returns>A task that completes when the row has been finalized.</returns>
+    /// <remarks>
+    /// Prefer the <see cref="CompleteAsync(LoggingActivityScope, LoggingActivityStatus, long?, string?, CancellationToken)"/>
+    /// overload when the scope is available — this id-only path probes
+    /// every monthly partition on MySQL.
+    /// </remarks>
     Task CompleteAsync(
         string activityId,
         LoggingActivityStatus status,
@@ -71,10 +110,28 @@ internal interface ILoggingActivityService
     /// Marks the activity row as <see cref="LoggingActivityStatus.Failed"/>
     /// and records the captured exception.
     /// </summary>
+    /// <param name="scope">Scope returned by <see cref="BeginAsync"/>. Carries the row's <c>created_on</c> so the UPDATE prunes to one MySQL partition.</param>
+    /// <param name="error">The exception that ended the activity.</param>
+    /// <param name="cancellationToken">Token to notify when the operation should be canceled.</param>
+    /// <returns>A task that completes when the row has been finalized.</returns>
+    Task FailAsync(
+        LoggingActivityScope scope,
+        Exception error,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Marks the activity row as <see cref="LoggingActivityStatus.Failed"/>,
+    /// identified by id only.
+    /// </summary>
     /// <param name="activityId">Identifier of the activity row to finalize.</param>
     /// <param name="error">The exception that ended the activity.</param>
     /// <param name="cancellationToken">Token to notify when the operation should be canceled.</param>
     /// <returns>A task that completes when the row has been finalized.</returns>
+    /// <remarks>
+    /// Prefer the <see cref="FailAsync(LoggingActivityScope, Exception, CancellationToken)"/>
+    /// overload when the scope is available — this id-only path probes
+    /// every monthly partition on MySQL.
+    /// </remarks>
     Task FailAsync(
         string activityId,
         Exception error,

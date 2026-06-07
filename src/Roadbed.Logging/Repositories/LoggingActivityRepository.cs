@@ -3,6 +3,7 @@ namespace Roadbed.Logging;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Dapper;
 using Microsoft.Extensions.Logging;
 using Roadbed.Data;
 
@@ -55,6 +56,13 @@ internal sealed class LoggingActivityRepository
         ArgumentNullException.ThrowIfNull(entity);
         ArgumentException.ThrowIfNullOrWhiteSpace(entity.Id);
 
+        // created_on / last_modified_on are stamped explicitly with UTC
+        // values supplied by the caller (DateTime.UtcNow from
+        // LoggingActivityService.BeginAsync) so we never rely on the
+        // session time_zone of the underlying connection. The values
+        // chosen here are what LoggingActivityScope.CreatedOn returns,
+        // so subsequent UPDATE WHEREs can include AND created_on = ? and
+        // prune to one MySQL partition.
         string sql = $@"
             INSERT INTO {this._tableRef}
             (
@@ -81,6 +89,8 @@ internal sealed class LoggingActivityRepository
                 ,host
                 ,process_id
                 ,created_by
+                ,created_on
+                ,last_modified_on
             )
             VALUES
             (
@@ -107,6 +117,8 @@ internal sealed class LoggingActivityRepository
                 ,@Host
                 ,@ProcessId
                 ,@CreatedBy
+                ,@CreatedOn
+                ,@LastModifiedOn
             )
             ;";
 
@@ -137,6 +149,8 @@ internal sealed class LoggingActivityRepository
                 entity.Host,
                 entity.ProcessId,
                 entity.CreatedBy,
+                entity.CreatedOn,
+                entity.LastModifiedOn,
             },
         };
 
@@ -153,6 +167,8 @@ internal sealed class LoggingActivityRepository
         ArgumentNullException.ThrowIfNull(request);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.ActivityId);
 
+        string whereClause = BuildWhereClause(request.CreatedOn);
+
         string sql = $@"
             UPDATE {this._tableRef}
             SET
@@ -168,28 +184,33 @@ internal sealed class LoggingActivityRepository
                 ,quartz_job_group      = COALESCE(@QuartzJobGroup,       quartz_job_group)
                 ,quartz_trigger_name   = COALESCE(@QuartzTriggerName,    quartz_trigger_name)
                 ,quartz_trigger_group  = COALESCE(@QuartzTriggerGroup,   quartz_trigger_group)
-            WHERE
-                id = @ActivityId
+                ,last_modified_on      = @LastModifiedOn
+            {whereClause}
             ;";
+
+        var parameters = new DynamicParameters();
+        parameters.Add("ActivityId", request.ActivityId);
+        parameters.Add("ActivityKey", request.ActivityKey);
+        parameters.Add("ActivityType", request.ActivityType);
+        parameters.Add("Target", request.Target);
+        parameters.Add("ParametersJson", request.ParametersJson);
+        parameters.Add("MetricsJson", request.MetricsJson);
+        parameters.Add("RecordsImpacted", request.RecordsImpacted);
+        parameters.Add("SchedulerInstanceId", request.SchedulerInstanceId);
+        parameters.Add("FireInstanceId", request.FireInstanceId);
+        parameters.Add("QuartzJobName", request.QuartzJobName);
+        parameters.Add("QuartzJobGroup", request.QuartzJobGroup);
+        parameters.Add("QuartzTriggerName", request.QuartzTriggerName);
+        parameters.Add("QuartzTriggerGroup", request.QuartzTriggerGroup);
+        parameters.Add("LastModifiedOn", DateTime.UtcNow);
+        if (request.CreatedOn.HasValue)
+        {
+            parameters.Add("CreatedOn", request.CreatedOn.Value);
+        }
 
         var executorRequest = new DataExecutorRequest(sql)
         {
-            Parameters = new
-            {
-                request.ActivityId,
-                request.ActivityKey,
-                request.ActivityType,
-                request.Target,
-                request.ParametersJson,
-                request.MetricsJson,
-                request.RecordsImpacted,
-                request.SchedulerInstanceId,
-                request.FireInstanceId,
-                request.QuartzJobName,
-                request.QuartzJobGroup,
-                request.QuartzTriggerName,
-                request.QuartzTriggerGroup,
-            },
+            Parameters = parameters,
         };
 
         await LoggingSqlDispatcher
@@ -200,26 +221,34 @@ internal sealed class LoggingActivityRepository
     /// <inheritdoc/>
     public async Task RecordHeartbeatAsync(
         string activityId,
+        DateTime? createdOn,
         DateTime heartbeatOn,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(activityId);
 
+        string whereClause = BuildWhereClause(createdOn);
+
         string sql = $@"
             UPDATE {this._tableRef}
             SET
-                last_heartbeat_on = @HeartbeatOn
-            WHERE
-                id = @ActivityId
+                 last_heartbeat_on = @HeartbeatOn
+                ,last_modified_on  = @LastModifiedOn
+            {whereClause}
             ;";
+
+        var parameters = new DynamicParameters();
+        parameters.Add("ActivityId", activityId);
+        parameters.Add("HeartbeatOn", heartbeatOn);
+        parameters.Add("LastModifiedOn", DateTime.UtcNow);
+        if (createdOn.HasValue)
+        {
+            parameters.Add("CreatedOn", createdOn.Value);
+        }
 
         var request = new DataExecutorRequest(sql)
         {
-            Parameters = new
-            {
-                ActivityId = activityId,
-                HeartbeatOn = heartbeatOn,
-            },
+            Parameters = parameters,
         };
 
         await LoggingSqlDispatcher
@@ -230,6 +259,7 @@ internal sealed class LoggingActivityRepository
     /// <inheritdoc/>
     public async Task CompleteAsync(
         string activityId,
+        DateTime? createdOn,
         LoggingActivityStatus status,
         DateTime completedOn,
         long? recordsImpacted,
@@ -238,6 +268,8 @@ internal sealed class LoggingActivityRepository
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(activityId);
 
+        string whereClause = BuildWhereClause(createdOn);
+
         string sql = $@"
             UPDATE {this._tableRef}
             SET
@@ -245,20 +277,25 @@ internal sealed class LoggingActivityRepository
                 ,completed_on      = @CompletedOn
                 ,records_impacted  = COALESCE(@RecordsImpacted, records_impacted)
                 ,metrics           = COALESCE(@MetricsJson,     metrics)
-            WHERE
-                id = @ActivityId
+                ,last_modified_on  = @LastModifiedOn
+            {whereClause}
             ;";
+
+        var parameters = new DynamicParameters();
+        parameters.Add("ActivityId", activityId);
+        parameters.Add("Status", status.ToString().ToLowerInvariant());
+        parameters.Add("CompletedOn", completedOn);
+        parameters.Add("RecordsImpacted", recordsImpacted);
+        parameters.Add("MetricsJson", metricsJson);
+        parameters.Add("LastModifiedOn", DateTime.UtcNow);
+        if (createdOn.HasValue)
+        {
+            parameters.Add("CreatedOn", createdOn.Value);
+        }
 
         var request = new DataExecutorRequest(sql)
         {
-            Parameters = new
-            {
-                ActivityId = activityId,
-                Status = status.ToString().ToLowerInvariant(),
-                CompletedOn = completedOn,
-                RecordsImpacted = recordsImpacted,
-                MetricsJson = metricsJson,
-            },
+            Parameters = parameters,
         };
 
         await LoggingSqlDispatcher
@@ -269,6 +306,7 @@ internal sealed class LoggingActivityRepository
     /// <inheritdoc/>
     public async Task FailAsync(
         string activityId,
+        DateTime? createdOn,
         DateTime completedOn,
         string error,
         string errorType,
@@ -278,27 +316,34 @@ internal sealed class LoggingActivityRepository
         ArgumentNullException.ThrowIfNull(error);
         ArgumentNullException.ThrowIfNull(errorType);
 
+        string whereClause = BuildWhereClause(createdOn);
+
         string sql = $@"
             UPDATE {this._tableRef}
             SET
-                 status        = @Status
-                ,completed_on  = @CompletedOn
-                ,error         = @Error
-                ,error_type    = @ErrorType
-            WHERE
-                id = @ActivityId
+                 status            = @Status
+                ,completed_on      = @CompletedOn
+                ,error             = @Error
+                ,error_type        = @ErrorType
+                ,last_modified_on  = @LastModifiedOn
+            {whereClause}
             ;";
+
+        var parameters = new DynamicParameters();
+        parameters.Add("ActivityId", activityId);
+        parameters.Add("Status", LoggingActivityStatus.Failed.ToString().ToLowerInvariant());
+        parameters.Add("CompletedOn", completedOn);
+        parameters.Add("Error", error);
+        parameters.Add("ErrorType", errorType);
+        parameters.Add("LastModifiedOn", DateTime.UtcNow);
+        if (createdOn.HasValue)
+        {
+            parameters.Add("CreatedOn", createdOn.Value);
+        }
 
         var request = new DataExecutorRequest(sql)
         {
-            Parameters = new
-            {
-                ActivityId = activityId,
-                Status = LoggingActivityStatus.Failed.ToString().ToLowerInvariant(),
-                CompletedOn = completedOn,
-                Error = error,
-                ErrorType = errorType,
-            },
+            Parameters = parameters,
         };
 
         await LoggingSqlDispatcher
@@ -307,4 +352,27 @@ internal sealed class LoggingActivityRepository
     }
 
     #endregion Public Methods
+
+    #region Internal Methods
+
+    /// <summary>
+    /// Builds the WHERE clause used by every activity UPDATE.
+    /// </summary>
+    /// <param name="createdOn">
+    /// When supplied, the clause includes
+    /// <c>AND created_on = @CreatedOn</c> so MySQL prunes the UPDATE to
+    /// the single monthly partition that owns the row. When <c>null</c>,
+    /// the clause filters only on <c>id</c> and the UPDATE has to probe
+    /// every defined partition.
+    /// </param>
+    /// <returns>A <c>WHERE</c> clause string ready for SQL concatenation.</returns>
+    /// <remarks>Exposed to <c>Roadbed.Test.Unit</c> for SQL-shape verification.</remarks>
+    internal static string BuildWhereClause(DateTime? createdOn)
+    {
+        return createdOn.HasValue
+            ? "WHERE id = @ActivityId AND created_on = @CreatedOn"
+            : "WHERE id = @ActivityId";
+    }
+
+    #endregion Internal Methods
 }

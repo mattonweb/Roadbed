@@ -3,9 +3,19 @@
 -- Lineage DAG: "this activity consumed the output of those upstream
 -- activities." Soft reference to activity.id on both columns.
 --
--- Substitute the literal token {SchemaPrefix} before executing.
+-- Run this script against your target SQLite database file. The table
+-- is created unqualified.
+--
+-- SQLite has no partitioning. Retention is enforced externally by
+-- running:
+--   DELETE FROM activity_input WHERE created_on < datetime('now','-12 months');
+--
+-- UTC contract
+-- ============
+-- created_on defaults to strftime('%Y-%m-%dT%H:%M:%fZ','now') which
+-- SQLite always evaluates in UTC.
 
-CREATE TABLE {SchemaPrefix}activity_input (
+CREATE TABLE activity_input (
      activity_id        TEXT     NOT NULL COLLATE BINARY
     ,input_activity_id  TEXT     NOT NULL COLLATE BINARY
     ,input_role         TEXT     NULL
@@ -13,4 +23,4 @@ CREATE TABLE {SchemaPrefix}activity_input (
     ,PRIMARY KEY (activity_id, input_activity_id)
 );
 
-CREATE INDEX idx_activity_input_reverse ON {SchemaPrefix}activity_input (input_activity_id);
+CREATE INDEX idx_activity_input_reverse ON activity_input (input_activity_id);
