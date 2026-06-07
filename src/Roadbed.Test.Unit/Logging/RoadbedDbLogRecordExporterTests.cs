@@ -26,9 +26,10 @@ public class RoadbedDbLogRecordExporterTests
     {
         // Arrange (Given)
         var options = new LoggingOptions();
+        var channel = new LoggingChannel(options);
         var exporter = new RoadbedDbLogRecordExporter(
-            new LoggingChannel(options),
-            options);
+            channelAccessor: () => channel,
+            options: options);
 
         // Act (When) + Assert (Then)
         Assert.IsTrue(exporter.IsRecursionGuarded("Roadbed.Logging.Hosted.LogWriterHostedService"));
@@ -44,9 +45,10 @@ public class RoadbedDbLogRecordExporterTests
     {
         // Arrange (Given)
         var options = new LoggingOptions();
+        var channel = new LoggingChannel(options);
         var exporter = new RoadbedDbLogRecordExporter(
-            new LoggingChannel(options),
-            options);
+            channelAccessor: () => channel,
+            options: options);
 
         // Act (When) + Assert (Then)
         Assert.IsFalse(exporter.IsRecursionGuarded("Pebble.Bronze.PlacesLoader"));
@@ -61,9 +63,10 @@ public class RoadbedDbLogRecordExporterTests
     {
         // Arrange (Given)
         var options = new LoggingOptions();
+        var channel = new LoggingChannel(options);
         var exporter = new RoadbedDbLogRecordExporter(
-            new LoggingChannel(options),
-            options);
+            channelAccessor: () => channel,
+            options: options);
 
         // Act (When) + Assert (Then)
         Assert.IsFalse(exporter.IsRecursionGuarded(null));
@@ -79,13 +82,43 @@ public class RoadbedDbLogRecordExporterTests
         // Arrange (Given)
         var options = new LoggingOptions();
         options.RecursionGuardCategories.Add("Pebble.Noisy");
+        var channel = new LoggingChannel(options);
         var exporter = new RoadbedDbLogRecordExporter(
-            new LoggingChannel(options),
-            options);
+            channelAccessor: () => channel,
+            options: options);
 
         // Act (When) + Assert (Then)
         Assert.IsTrue(exporter.IsRecursionGuarded("Pebble.Noisy.Subsystem"));
         Assert.IsFalse(exporter.IsRecursionGuarded("Pebble.Quiet.Subsystem"));
+    }
+
+    /// <summary>
+    /// Verifies that constructing the exporter does NOT invoke the channel
+    /// accessor. The OTel processor factory must be able to instantiate the
+    /// exporter before <c>InstallLogging</c> has registered
+    /// <see cref="LoggingChannel"/>; lazy resolution defends against that
+    /// build-order race.
+    /// </summary>
+    [TestMethod]
+    public void Constructor_DoesNotEagerlyInvokeChannelAccessor()
+    {
+        // Arrange (Given)
+        var options = new LoggingOptions();
+        int accessorInvocations = 0;
+        Func<LoggingChannel> accessor = () =>
+        {
+            accessorInvocations++;
+            return new LoggingChannel(options);
+        };
+
+        // Act (When)
+        _ = new RoadbedDbLogRecordExporter(accessor, options);
+
+        // Assert (Then)
+        Assert.AreEqual(
+            0,
+            accessorInvocations,
+            "Constructor must defer channel resolution until first Export.");
     }
 
     #endregion Public Methods

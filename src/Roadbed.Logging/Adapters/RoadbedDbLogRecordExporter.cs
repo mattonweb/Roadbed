@@ -45,7 +45,7 @@ internal sealed class RoadbedDbLogRecordExporter : BaseExporter<LogRecord>
     /// </summary>
     private const string OriginalFormatKey = "{OriginalFormat}";
 
-    private readonly LoggingChannel _channel;
+    private readonly Lazy<LoggingChannel> _channel;
     private readonly LoggingOptions _options;
     private readonly string _hostName;
     private readonly int _processId;
@@ -57,16 +57,28 @@ internal sealed class RoadbedDbLogRecordExporter : BaseExporter<LogRecord>
     /// <summary>
     /// Initializes a new instance of the <see cref="RoadbedDbLogRecordExporter"/> class.
     /// </summary>
-    /// <param name="channel">Bounded channel that hands records off to the background writer.</param>
+    /// <param name="channelAccessor">
+    /// Deferred accessor for the bounded channel that hands records off to
+    /// the background writer. The exporter resolves the channel on the
+    /// first <see cref="Export"/> call rather than at construction so the
+    /// OTel processor factory can be invoked before the
+    /// Roadbed.Logging installer has registered the channel descriptor.
+    /// </param>
     /// <param name="options">Host-supplied logging options.</param>
+    /// <remarks>
+    /// Wrapped in <see cref="Lazy{T}"/> with the default
+    /// <c>ExecutionAndPublication</c> mode so concurrent first calls from
+    /// multiple producer threads are serialized — the accessor runs
+    /// exactly once.
+    /// </remarks>
     public RoadbedDbLogRecordExporter(
-        LoggingChannel channel,
+        Func<LoggingChannel> channelAccessor,
         LoggingOptions options)
     {
-        ArgumentNullException.ThrowIfNull(channel);
+        ArgumentNullException.ThrowIfNull(channelAccessor);
         ArgumentNullException.ThrowIfNull(options);
 
-        this._channel = channel;
+        this._channel = new Lazy<LoggingChannel>(channelAccessor);
         this._options = options;
         this._hostName = Environment.MachineName;
         this._processId = Environment.ProcessId;
@@ -79,6 +91,10 @@ internal sealed class RoadbedDbLogRecordExporter : BaseExporter<LogRecord>
     /// <inheritdoc/>
     public override ExportResult Export(in Batch<LogRecord> batch)
     {
+        // Resolve the channel lazily on first export — see the constructor
+        // remarks for why this is necessary for build-order robustness.
+        LoggingChannel channel = this._channel.Value;
+
         foreach (LogRecord record in batch)
         {
             if (this.IsRecursionGuarded(record.CategoryName))
@@ -87,7 +103,7 @@ internal sealed class RoadbedDbLogRecordExporter : BaseExporter<LogRecord>
             }
 
             LoggingLogEntry entry = this.MapRecord(record);
-            this._channel.TryWrite(entry);
+            channel.TryWrite(entry);
         }
 
         return ExportResult.Success;

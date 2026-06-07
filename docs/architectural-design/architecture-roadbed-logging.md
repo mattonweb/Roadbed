@@ -51,10 +51,13 @@ This document is the authoritative reference for the Roadbed.Logging NuGet packa
     - [LogWriterHostedService](architecture-roadbed-logging.md#logwriterhostedservice)
     - [Recursion Safety](architecture-roadbed-logging.md#recursion-safety)
 9. [Module Auto-Discovery and Wiring](architecture-roadbed-logging.md#module-auto-discovery-and-wiring)
+    - [Multi-Container Channel Sharing](architecture-roadbed-logging.md#multi-container-channel-sharing)
+    - [Build-Order Robustness](architecture-roadbed-logging.md#build-order-robustness)
 10. [Schema Installation](architecture-roadbed-logging.md#schema-installation)
 11. [Implementation Walkthrough](architecture-roadbed-logging.md#implementation-walkthrough)
 12. [Common Pitfalls](architecture-roadbed-logging.md#common-pitfalls)
-13. [Quick Reference](architecture-roadbed-logging.md#quick-reference)
+13. [Troubleshooting](architecture-roadbed-logging.md#troubleshooting)
+14. [Quick Reference](architecture-roadbed-logging.md#quick-reference)
 
 ---
 
@@ -410,10 +413,11 @@ public class InstallLogging : IServiceCollectionInstaller
     public void ConfigureServices(IServiceCollection services, IConfiguration configuration)
     {
         // 1. Resolve host registrations up-front; throw with actionable messages if missing.
+        LoggingOptions options;
         ILoggingDatabaseFactory factory;
         using (var setupProvider = services.BuildServiceProvider())
         {
-            _ = setupProvider.GetService<LoggingOptions>()
+            options = setupProvider.GetService<LoggingOptions>()
                 ?? throw new InvalidOperationException(...);
             factory = setupProvider.GetService<ILoggingDatabaseFactory>()
                 ?? throw new InvalidOperationException(...);
@@ -428,22 +432,33 @@ public class InstallLogging : IServiceCollectionInstaller
             typeof(LoggingActivityInput),
             typeof(LoggingLogEntry));
 
-        // 4. Register repositories, service, channel, and hosted writer as singletons.
+        // 4. Register repositories and activity service as typed singletons.
         services.TryAddSingleton<ILoggingActivityRepository, LoggingActivityRepository>();
         services.TryAddSingleton<ILoggingActivityInputRepository, LoggingActivityInputRepository>();
         services.TryAddSingleton<ILoggingLogEntryRepository, LoggingLogEntryRepository>();
         services.TryAddSingleton<ILoggingActivityService, LoggingActivityService>();
         services.TryAddSingleton<LoggingActivityService>();
-        services.TryAddSingleton<LoggingChannel>();
+
+        // 5. LoggingChannel — eagerly constructed and registered as a
+        //    concrete-instance singleton so every IServiceProvider built
+        //    from this collection (the host's container and every
+        //    ServiceLocator snapshot) resolves the SAME object. See the
+        //    "Multi-Container Channel Sharing" section below for why this
+        //    is load-bearing.
+        if (!services.Any(d => d.ServiceType == typeof(LoggingChannel)))
+        {
+            services.AddSingleton<LoggingChannel>(new LoggingChannel(options));
+        }
+
         services.AddHostedService<LogWriterHostedService>();
 
-        // 5. Snapshot ServiceLocator so LoggingActivityService's public ctor can resolve.
+        // 6. Snapshot ServiceLocator so LoggingActivityService's public ctor can resolve.
         ServiceLocator.SetLocatorProvider(services.BuildServiceProvider());
     }
 }
 ```
 
-The companion `LoggingBuilderExtensions.AddRoadbedDbLogging` lives outside `InstallLogging` because the MEL configuration extension method needs `ILoggingBuilder`, which an `IServiceCollectionInstaller` does not see. It registers OTel's logger provider with `IncludeScopes = true`, `IncludeFormattedMessage = true`, `ParseStateValues = true`, then wires a `BatchLogRecordExportProcessor` whose factory pulls `LoggingChannel` and `LoggingOptions` from the eventual `IServiceProvider`.
+The companion `LoggingBuilderExtensions.AddRoadbedDbLogging` lives outside `InstallLogging` because the MEL configuration extension method needs `ILoggingBuilder`, which an `IServiceCollectionInstaller` does not see. It registers OTel's logger provider with `IncludeScopes = true`, `IncludeFormattedMessage = true`, `ParseStateValues = true`, then wires a `BatchLogRecordExportProcessor` whose factory hands the exporter a **lazy** accessor for `LoggingChannel` rather than a resolved instance — see the "Build-Order Robustness" subsection below.
 
 Host wiring order:
 
@@ -457,6 +472,31 @@ builder.Services.InstallModulesInAppDomain(builder.Configuration);  // InstallLo
 using var host = builder.Build();
 await host.RunAsync();
 ```
+
+### Multi-Container Channel Sharing
+
+Roadbed framework services use a dual-constructor pattern: the `public` constructor resolves dependencies via `ServiceLocator.GetService<T>()`, where `ServiceLocator` holds a point-in-time snapshot of the host's `IServiceCollection`. That snapshot is a **separate `IServiceProvider`** from the host's own container — the host has its own runtime DI graph, and every `ServiceLocator.SetLocatorProvider(services.BuildServiceProvider())` call creates a new one.
+
+When a component resolved via `ServiceLocator` emits a log line, the `ILogger` it uses came from that snapshot's `IServiceProvider`. The snapshot has its own `ILoggerFactory`, which builds its own `OpenTelemetryLoggerProvider`, which builds its own `RoadbedDbLogRecordExporter`. The exporter must enqueue into the **same** `LoggingChannel` the `LogWriterHostedService` (running in the host's container) drains — otherwise the log lines reach an orphan channel that nothing reads, and `log_entries` stays empty.
+
+The fix that makes this work: register `LoggingChannel` as `AddSingleton<LoggingChannel>(eagerlyConstructedInstance)`. A **concrete-instance descriptor** pins one object across every `IServiceProvider` built from the underlying collection. Producers in any container converge on one channel; the single consumer (the host writer) drains it.
+
+The thread-safety primitives this leans on are already correct: `System.Threading.Channels.Channel<T>` is multi-producer safe, and `LoggingChannel._droppedCount` is updated via `Interlocked.Increment` / `Interlocked.Exchange`.
+
+### Build-Order Robustness
+
+`AddRoadbedDbLogging` registers a deferred OTel processor factory — the lambda `sp => new BatchLogRecordExportProcessor(new RoadbedDbLogRecordExporter(...))` only runs when the OTel logger provider is **realized** (the first time an `ILoggerFactory` resolves and constructs the OTel provider). Two distinct things can fail without care:
+
+1. **Premature realization in another installer.** If some other `IServiceCollectionInstaller` calls `services.BuildServiceProvider()` and then resolves `ILoggerFactory` eagerly (a pre-fix `InstallExtensionsLogging` did exactly this), the OTel provider realizes inside the throwaway container. The processor factory runs with the throwaway `sp`. If `InstallLogging` has not yet registered `LoggingChannel`, `sp.GetRequiredService<LoggingChannel>()` throws.
+2. **Different exporter resolves different channel.** Even when realization succeeds, the exporter captures the channel from the realizing `sp` — pre-fix that meant each container's exporter held a reference to that container's `LoggingChannel`, severing the producer–consumer link.
+
+The framework defends in depth:
+
+- `InstallExtensionsLogging` no longer eagerly resolves `ILoggerFactory`. Provider construction is cheap and does not realize singletons; the OTel provider stays unrealized until the host fully boots.
+- `LoggingChannel` is a concrete-instance singleton (the cause-2 fix above), so even when multiple OTel exporters are constructed in different containers, they all resolve to the same channel object.
+- `RoadbedDbLogRecordExporter` takes a `Func<LoggingChannel>` accessor and wraps it in `Lazy<LoggingChannel>`. The channel is resolved on **first** `Export(in Batch<LogRecord>)` call, never at exporter construction. If some other installer still manages to realize the OTel provider early, the processor factory completes successfully and the actual channel resolution happens once the host is built — by which time `InstallLogging` has run and the channel is registered.
+
+These three together make the documented host wiring (`AddRoadbedDbLogging()` before `InstallModulesInAppDomain`) robust to installer-discovery order.
 
 ---
 
@@ -583,6 +623,33 @@ Inside the loader, every `this._logger.LogInformation(...)` call inherits the am
 **Treating logs as a substitute for the activity row.** Logs are per-event narrative; the activity row is the run record. Always `BeginAsync` at the start of a meaningful unit of work — heartbeats, lineage, and terminal status all hang off the activity row.
 
 **Expecting `LoggingActivityScope.Dispose` to be async.** It is not. The dispose path stops the diagnostic Activity and pops the MEL scope synchronously; persistence is the caller's job via the explicit terminal methods.
+
+**Re-registering `LoggingChannel` in `Program.cs`.** `InstallLogging` eagerly constructs the channel from `LoggingOptions` and registers it as a concrete-instance singleton. Overwriting that registration after the installer runs (`services.AddSingleton<LoggingChannel>(new LoggingChannel(...))`) replaces the shared instance and severs the producer–consumer link.
+
+---
+
+## Troubleshooting
+
+### `activity` rows write but `log_entries` stays empty
+
+The producer-side exporter is enqueueing into a different `LoggingChannel` instance than the host writer drains, or the host's MEL pipeline never realized the OTel DB exporter at all. Common causes after this fix shipped:
+
+1. **Stale vendored DLLs.** A consumer that vendors `Roadbed.Common.dll` and `Roadbed.Logging.dll` into its `lib/` directory needs to re-vendor both after this fix lands — the pre-fix `InstallExtensionsLogging` froze a throwaway `ILoggerFactory` instance that orphaned the OTel DB exporter from the host's runtime singletons. Re-vendor from the framework solution's `bin/Release/net10.0/` directory.
+2. **Re-registered `LoggingChannel`.** Search `Program.cs` and any installer in the host's solution for `AddSingleton<LoggingChannel>` calls. The framework installer is the single owner; another registration replaces the shared instance.
+3. **DB user missing privileges on `log_entries`.** The `activity` write only proves grants on `activity`. Run `SHOW GRANTS FOR <user>` and confirm `INSERT` on `<schema>.log_entries`. A silent grant failure manifests as the exporter enqueuing, the writer flushing, the DB rejecting the INSERT, and the `Console.Error` fallback firing — check the host's stderr first.
+
+### Startup crash: `No service for type 'Roadbed.Logging.LoggingChannel' has been registered.`
+
+This was the pre-fix symptom of an installer realizing the OTel logger provider before `InstallLogging` had registered the channel descriptor. With the fix applied:
+
+- `InstallExtensionsLogging` no longer eagerly resolves `ILoggerFactory`.
+- `RoadbedDbLogRecordExporter` resolves the channel lazily on first `Export(...)` call.
+
+If this crash persists, you are running pre-fix vendored DLLs. Re-vendor both `Roadbed.Common.dll` and `Roadbed.Logging.dll`.
+
+### Log lines from `ServiceLocator`-resolved components are missing while host-resolved ones land fine
+
+The cause-2 pre-fix symptom. `LoggingChannel` was `TryAddSingleton<LoggingChannel>()` (typed-factory registration), so every `IServiceProvider` built from the underlying collection — host container plus each `ServiceLocator` snapshot — created its **own** `LoggingChannel`. The fix promotes it to a concrete-instance singleton. Confirm `Roadbed.Logging.dll` is at or after this fix; the channel-sharing test in `Roadbed.Test.Unit.Logging.InstallLoggingTests` covers exactly this scenario.
 
 ---
 

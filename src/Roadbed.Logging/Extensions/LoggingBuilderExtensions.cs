@@ -50,8 +50,8 @@ public static class LoggingBuilderExtensions
             .WithLogging(logging => logging.AddProcessor(sp =>
                 new BatchLogRecordExportProcessor(
                     new RoadbedDbLogRecordExporter(
-                        sp.GetRequiredService<LoggingChannel>(),
-                        sp.GetRequiredService<LoggingOptions>()))));
+                        channelAccessor: () => sp.GetRequiredService<LoggingChannel>(),
+                        options: sp.GetRequiredService<LoggingOptions>()))));
 
         return builder;
     }

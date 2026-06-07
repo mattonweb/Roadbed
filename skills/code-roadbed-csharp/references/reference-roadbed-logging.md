@@ -46,22 +46,101 @@ activity id like the CRUDALBT "B" tier.
 - **MUST NOT** log from a category that overlaps `LoggingOptions.RecursionGuardCategories` and expect the entry to be persisted. Categories under `Roadbed.Logging`, `Roadbed.Data`, `Roadbed.Data.MySql`, `Roadbed.Data.Sqlite`, and `MySqlConnector` are dropped to prevent the database write path from logging through itself.
 - **MUST NOT** pass `LoggingActivityStatus.Failed` to `CompleteAsync`. Use `FailAsync(activityId, exception)` instead — it records the exception message and type as well as the terminal status.
 - **MUST NOT** read `IConfiguration` from inside Roadbed.Logging-aware code expecting the library to honor it. The library only sees `LoggingOptions` and `ILoggingDatabaseFactory` from DI.
+- **MUST NOT** re-register `LoggingChannel` in DI. `InstallLogging` registers it as a process-wide shared instance built from `LoggingOptions`; the host writer (in the host container) and every producer-side OTel exporter (in any container — host, `ServiceLocator` snapshot, or test fixture) all need to resolve the **same** object. Overwriting that registration in `Program.cs` (e.g. via `services.AddSingleton<LoggingChannel>(new LoggingChannel(...))`) is what creates the "`activity` rows write but `log_entries` stays empty" symptom.
 
-## Code patterns
+## Consuming-application host wiring
 
-### Host wire-up
+The canonical startup recipe — register `LoggingOptions` and `ILoggingDatabaseFactory` **before** anything else logging-related, call `AddRoadbedDbLogging()` on the logging builder, then run `InstallModulesInAppDomain`. The order shown below is the one the framework is tested against:
 
 ```csharp
 // Program.cs (host)
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Roadbed;
+using Roadbed.Logging;
+
+var builder = Host.CreateApplicationBuilder(args);
+
+// 1. The two POCO singletons the framework reads at install time.
+builder.Services.AddSingleton(new LoggingOptions
+{
+    Schema      = "logging",                                     // MySQL DB name; empty for SQLite-dev
+    Application = "Foo",
+    Environment = builder.Environment.EnvironmentName,
+    BatchSize   = 1000,
+    FlushInterval = TimeSpan.FromSeconds(5),
+});
+
+builder.Services.AddSingleton<ILoggingDatabaseFactory, FooLoggingDatabaseFactory>();
+
+// 2. Wire the OpenTelemetry MEL provider, batch processor, and DB exporter
+//    onto the host's logging builder. Safe to call before InstallModules*
+//    — the exporter resolves LoggingChannel lazily on first export, not at
+//    OTel-provider realization, so installer-discovery order is not load-
+//    bearing.
+builder.Logging.AddRoadbedDbLogging();
+
+// 3. Discover and run every IServiceCollectionInstaller, including
+//    InstallExtensionsLogging (Roadbed.Common) and InstallLogging
+//    (Roadbed.Logging). InstallLogging eagerly constructs the shared
+//    LoggingChannel instance and registers it as a singleton.
+builder.Services.InstallModulesInAppDomain(builder.Configuration);
+
+using var host = builder.Build();
+await host.RunAsync();
+```
+
+### Supported providers
+
+Set `ILoggingDatabaseFactory.Connecion.ConnectionStringType` to one of:
+
+| Type                                                        | Use                                                                                              |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `DataConnectionStringType.MySQL`                            | Production. `log_entries` ships with monthly RANGE partitioning for fast retention drops.        |
+| `DataConnectionStringType.SQLite`                           | Local/dev only. No partitioning; retention is a scheduled `DELETE` job.                          |
+| `DataConnectionStringType.SQLiteInMemory`                   | Test harness only. Same as SQLite but the database vanishes when the connection closes.          |
+
+`Postgres`, `Unknown`, and any other value cause `InstallLogging` to throw `InvalidOperationException` at install time.
+
+### Database setup (MySQL example)
+
+Apply the install script under `src/Roadbed.Logging/Assets/Tables/<table>/install_mysql.txt` (or paste the consolidated copies further down this reference) against your target database. The default DDL uses `{SchemaPrefix}` as a placeholder; substitute `logging.` (or your chosen schema name) before executing.
+
+The DB user the app runs as needs `INSERT`, `UPDATE`, and `SELECT` privileges on all three tables — `activity` rows writing successfully only proves the activity path's grants exist; `log_entries` can fail silently if the same user lacks INSERT there.
+
+### Why the shared channel matters
+
+Roadbed framework services use the dual-constructor pattern: their public constructor resolves dependencies via `ServiceLocator.GetService<T>()`, and `ServiceLocator` holds a point-in-time **snapshot** of the host's `IServiceCollection` — a separate `IServiceProvider` from the host's own container. When a `ServiceLocator`-resolved component logs, the log record flows through *that snapshot's* OTel logger provider, which builds *its own* `RoadbedDbLogRecordExporter`. The exporter resolves `LoggingChannel` from the snapshot's provider, not the host's.
+
+`InstallLogging` registers `LoggingChannel` as `AddSingleton<LoggingChannel>(eagerInstance)` — a **concrete-instance descriptor** rather than a typed factory — so every `IServiceProvider` built from the underlying collection returns the same object. Producers in any container converge on one channel; the `LogWriterHostedService` running in the host container drains that one channel.
+
+## Troubleshooting
+
+**`activity` rows write but `log_entries` stays empty (no `Console.Error` fallback firing either).** The exporter is enqueueing into a `LoggingChannel` that the host writer does not drain. After the framework fix that ships `LoggingChannel` as a shared singleton, the usual causes are:
+
+1. Something in `Program.cs` (or another installer) re-registered `LoggingChannel` after `InstallLogging` ran, replacing the shared instance.
+2. The host code is using an older vendored copy of `Roadbed.Common.dll` or `Roadbed.Logging.dll` that still freezes a throwaway `ILoggerFactory` (the pre-fix behavior). Re-vendor both DLLs from the framework solution's `bin/Release/net10.0/` directory.
+3. The DB user has `INSERT` on `logging.activity` but not on `logging.log_entries`. The `activity` write proves only that grant; check `SHOW GRANTS FOR <user>` for the full set.
+
+**Startup crash: `No service for type 'Roadbed.Logging.LoggingChannel' has been registered.`** This was the symptom when `AddRoadbedDbLogging()` was called before `InstallModulesInAppDomain` AND `InstallExtensionsLogging` eagerly realized the OTel provider via a throwaway service provider. After the framework fix, the exporter resolves `LoggingChannel` lazily on first export — never at OTel-provider realization — so this crash should not occur even with the documented startup order. If you do see it, you are on a pre-fix vendored DLL.
+
+**Log lines from `ServiceLocator`-resolved components are missing while host-resolved ones land fine.** This is the cause-2 symptom from the pre-fix design. Confirm both `Roadbed.Common.dll` and `Roadbed.Logging.dll` are at or after the fix version; the channel-sharing test in `Roadbed.Test.Unit.Logging.InstallLoggingTests` covers exactly this scenario.
+
+## Code patterns
+
+### Host wire-up (abbreviated)
+
+```csharp
+// See the Consuming-application host wiring section above for the full
+// recipe with comments. The compact form:
 var builder = Host.CreateApplicationBuilder(args);
 
 builder.Services.AddSingleton(new LoggingOptions
 {
-    Schema = "ops",
+    Schema = "logging",
     Application = "Foo",
     Environment = builder.Environment.EnvironmentName,
-    BatchSize = 1000,
-    FlushInterval = TimeSpan.FromSeconds(5),
 });
 
 builder.Services.AddSingleton<ILoggingDatabaseFactory, FooLoggingDatabaseFactory>();

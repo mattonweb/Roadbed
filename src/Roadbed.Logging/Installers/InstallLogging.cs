@@ -39,11 +39,12 @@ public class InstallLogging : IServiceCollectionInstaller
         // Resolve host registrations up-front so we can validate them and
         // wire concrete repository implementations into DI before any
         // hosted-service start signal fires.
+        LoggingOptions options;
         ILoggingDatabaseFactory factory;
 
         using (var setupProvider = services.BuildServiceProvider())
         {
-            _ = setupProvider.GetService<LoggingOptions>()
+            options = setupProvider.GetService<LoggingOptions>()
                 ?? throw new InvalidOperationException(
                     $"Roadbed.Logging requires a singleton {nameof(LoggingOptions)} to be " +
                     $"registered before InstallModulesInAppDomain runs.");
@@ -73,8 +74,20 @@ public class InstallLogging : IServiceCollectionInstaller
         services.TryAddSingleton<ILoggingActivityService, LoggingActivityService>();
         services.TryAddSingleton<LoggingActivityService>();
 
-        // Channel + background writer.
-        services.TryAddSingleton<LoggingChannel>();
+        // LoggingChannel — process-wide shared instance. Constructed eagerly
+        // from LoggingOptions and registered as a concrete singleton so
+        // every IServiceProvider built from this IServiceCollection
+        // (the host's container and every ServiceLocator snapshot) resolves
+        // the SAME object. Producers (OTel DB exporter realized in any
+        // container's MEL pipeline) and the single consumer
+        // (LogWriterHostedService running in the host) therefore meet
+        // around one channel, even though each container builds its own
+        // OTel provider and exporter.
+        if (!services.Any(d => d.ServiceType == typeof(LoggingChannel)))
+        {
+            services.AddSingleton<LoggingChannel>(new LoggingChannel(options));
+        }
+
         services.AddHostedService<LogWriterHostedService>();
 
         // Capture point-in-time snapshot in ServiceLocator so the public
