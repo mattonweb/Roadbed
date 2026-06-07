@@ -1,6 +1,7 @@
 namespace Roadbed.Test.Unit.Logging;
 
 using System;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -69,6 +70,78 @@ public class LoggingActivityServiceTests
         activityRepository.Verify(
             r => r.InsertAsync(It.IsAny<LoggingActivity>(), It.IsAny<CancellationToken>()),
             Times.Once);
+    }
+
+    /// <summary>
+    /// Regression test for the AsyncLocal/ExecutionContext bug that left
+    /// <c>log_entries.activity_id</c> NULL: after <c>await BeginAsync(...)</c>
+    /// returns, the ambient state the service pushed must be live in the
+    /// <em>caller's</em> execution context so the exporter can read it from
+    /// subsequent log records. We assert on <see cref="Activity.Current"/>
+    /// (the exporter's fallback channel), which shares the same
+    /// AsyncLocal-flow mechanics as the MEL scope.
+    /// </summary>
+    /// <returns>Task representing the asynchronous test.</returns>
+    [TestMethod]
+    public async Task BeginAsync_AfterAwait_AmbientActivityFlowsToCaller()
+    {
+        // Arrange (Given)
+        const string ActivityId = "01AMBIENTFLOWSTOCALLERXXXX";
+        const string ActivityIdTagKey = "roadbed.activity_id";
+        var activityRepository = new Mock<ILoggingActivityRepository>();
+        activityRepository
+            .Setup(r => r.InsertAsync(It.IsAny<LoggingActivity>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        var service = new LoggingActivityService(
+            activityRepository.Object,
+            Mock.Of<ILoggingActivityInputRepository>(),
+            new LoggingOptions(),
+            NullLogger<LoggingActivityService>.Instance);
+
+        Assert.IsNull(Activity.Current, "Precondition: no ambient activity before BeginAsync.");
+
+        // Act (When) — emulate the documented `using var scope = await BeginAsync(...)`
+        // pattern and inspect the ambient state on the caller's own async frame.
+        using LoggingActivityScope scope = await service.BeginAsync(
+            new LoggingActivityBeginRequest { Id = ActivityId, ActivityType = "ingestion" });
+
+        // Assert (Then) — the ambient survived the await into the caller's context.
+        Assert.IsNotNull(Activity.Current, "Activity.Current must be live on the caller after the await.");
+        Assert.AreEqual(
+            ActivityId,
+            Activity.Current!.GetTagItem(ActivityIdTagKey)?.ToString(),
+            "The caller's ambient activity must carry the activity id the exporter stamps into log_entries.activity_id.");
+    }
+
+    /// <summary>
+    /// Verifies that disposing the scope reverts the caller's ambient
+    /// <see cref="Activity.Current"/> so later log lines are not stamped.
+    /// </summary>
+    /// <returns>Task representing the asynchronous test.</returns>
+    [TestMethod]
+    public async Task BeginAsync_ScopeDisposed_AmbientActivityReverts()
+    {
+        // Arrange (Given)
+        var activityRepository = new Mock<ILoggingActivityRepository>();
+        activityRepository
+            .Setup(r => r.InsertAsync(It.IsAny<LoggingActivity>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        var service = new LoggingActivityService(
+            activityRepository.Object,
+            Mock.Of<ILoggingActivityInputRepository>(),
+            new LoggingOptions(),
+            NullLogger<LoggingActivityService>.Instance);
+
+        // Act (When)
+        LoggingActivityScope scope = await service.BeginAsync(
+            new LoggingActivityBeginRequest { Id = "01AMBIENTREVERTSXXXXXXXXXX", ActivityType = "ingestion" });
+        Assert.IsNotNull(Activity.Current, "Activity.Current must be live before dispose.");
+        scope.Dispose();
+
+        // Assert (Then)
+        Assert.IsNull(Activity.Current, "Disposing the scope must revert Activity.Current on the caller.");
     }
 
     /// <summary>

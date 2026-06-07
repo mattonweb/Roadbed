@@ -280,6 +280,32 @@ public sealed class FooIngestionJob : BaseSchedulingJob<FooIngestionJob>
 }
 ```
 
+### How `log_entries.activity_id` gets populated
+
+Any `ILogger` call emitted **while a `LoggingActivityScope` is alive on the
+current async flow** is automatically stamped with that scope's
+`activity_id` — you do **not** pass the id to the logger. `BeginAsync`
+establishes the correlation in two ambient channels, and
+`RoadbedDbLogRecordExporter` reads them per log record:
+
+- the **MEL logging scope** state key `activity_id` (primary), and
+- `Activity.Current`'s `roadbed.activity_id` tag (fallback).
+
+The ambient state is pushed in the **caller's** execution context, so it
+flows to the `await BeginAsync(...)` caller and to any code it awaits while
+the `using` scope is open. Putting `{ActivityId}` in a message template is
+optional and independent — that only lands the value in the row's
+`properties` JSON, never in the dedicated `activity_id` column. Once the
+scope is disposed, `Activity.Current` reverts and later log lines are no
+longer stamped.
+
+> Requires the Roadbed.Logging build where `BeginAsync` pushes the ambient
+> in the caller's frame. In earlier builds `BeginAsync` was `async` and the
+> scope/`Activity` were established inside its state machine, so .NET's
+> `ExecutionContext` restore discarded them before control returned to the
+> caller — leaving `activity_id` NULL even though `properties.ActivityId`
+> was set. If you see that symptom, re-vendor `Roadbed.Logging.dll`.
+
 ### Heartbeating from a long-running step
 
 ```csharp

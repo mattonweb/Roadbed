@@ -96,7 +96,29 @@ public sealed class LoggingActivityService
     #region Public Methods
 
     /// <inheritdoc/>
-    public async Task<LoggingActivityScope> BeginAsync(
+    /// <remarks>
+    /// <para>
+    /// This method is deliberately <strong>not</strong> <c>async</c>. The
+    /// diagnostic <see cref="Activity"/> and the MEL logging scope must be
+    /// established in the <em>caller's</em> execution context so that the
+    /// caller's subsequent <c>ILogger</c> calls inherit the ambient
+    /// <c>activity_id</c> (which is how <c>RoadbedDbLogRecordExporter</c>
+    /// stamps the <c>log_entries.activity_id</c> column).
+    /// </para>
+    /// <para>
+    /// Both <c>Activity.Current</c> and the MEL scope are backed by
+    /// <see cref="System.Threading.AsyncLocal{T}"/>. The C# async-method
+    /// builder snapshots the <c>ExecutionContext</c> before running an async
+    /// method's synchronous prologue and restores it when control yields
+    /// back to the caller, so any AsyncLocal mutation made <em>inside</em> an
+    /// <c>async</c> method — prologue or continuation — is discarded from the
+    /// caller's view. Pushing the ambient here, in a plain method that shares
+    /// the caller's <c>ExecutionContext</c>, lets the mutation flow back to
+    /// the caller; the awaitable INSERT is delegated to the private
+    /// <see cref="InsertAndWrapAsync"/> tail.
+    /// </para>
+    /// </remarks>
+    public Task<LoggingActivityScope> BeginAsync(
         LoggingActivityBeginRequest request,
         CancellationToken cancellationToken = default)
     {
@@ -107,12 +129,15 @@ public sealed class LoggingActivityService
         // can carry trace_id / span_id sampled from a Current that already
         // covers the run. The Activity defaults to ActivityIdFormat.W3C
         // when no parent is present, producing W3C trace/span ids
-        // automatically.
+        // automatically. Started here (not in the async tail) so
+        // Activity.Current flows to the caller — see the method remarks.
         Activity? activity = new Activity(ActivityOperationName).Start();
         activity.SetTag(ActivityIdTagKey, request.Id);
 
         // Push the MEL scope so subsequent ILogger usage inherits the
-        // activity_id without callers having to thread it through.
+        // activity_id without callers having to thread it through. Pushed
+        // here, in the caller's execution context, so the scope is active on
+        // the caller's logs after `await BeginAsync(...)` returns.
         IDisposable? logScope = this.Logger.BeginScope(
             new Dictionary<string, object>
             {
@@ -153,23 +178,7 @@ public sealed class LoggingActivityService
             LastModifiedOn = nowUtc,
         };
 
-        try
-        {
-            await this._activityRepository
-                .InsertAsync(entity, cancellationToken)
-                .ConfigureAwait(false);
-        }
-        catch
-        {
-            // Roll back the scope/activity we opened so the caller is not
-            // left with an ambient activity_id pointing at a row that does
-            // not exist.
-            logScope?.Dispose();
-            activity.Dispose();
-            throw;
-        }
-
-        return new LoggingActivityScope(request.Id, nowUtc, activity, logScope);
+        return this.InsertAndWrapAsync(entity, nowUtc, activity, logScope, cancellationToken);
     }
 
     /// <inheritdoc/>
@@ -308,6 +317,50 @@ public sealed class LoggingActivityService
     #endregion Public Methods
 
     #region Private Methods
+
+    /// <summary>
+    /// Awaitable tail of <see cref="BeginAsync"/>: performs the activity-row
+    /// INSERT and wraps the already-pushed ambient state in a
+    /// <see cref="LoggingActivityScope"/>.
+    /// </summary>
+    /// <param name="entity">The fully-populated activity row to insert.</param>
+    /// <param name="createdOn">The UTC <c>created_on</c> stamp shared with the scope for partition-pruned updates.</param>
+    /// <param name="activity">The diagnostic <see cref="Activity"/> already started in the caller's execution context.</param>
+    /// <param name="logScope">The MEL scope handle already opened in the caller's execution context.</param>
+    /// <param name="cancellationToken">Token to notify when the operation should be canceled.</param>
+    /// <returns>The scope bundling the activity id, timestamp, and ambient handles.</returns>
+    /// <remarks>
+    /// On insert failure the ambient handles are disposed best-effort so the
+    /// run does not leave a live scope pointing at a row that was never
+    /// committed. The disposal runs in this async frame, so the
+    /// <c>Activity.Current</c> pointer the caller already inherited reverts
+    /// only when the caller's own logical async scope unwinds; the practical
+    /// effect is that the stopped activity is never reused because
+    /// <c>BeginAsync</c> rethrows and the caller's <c>using</c> binding is
+    /// never assigned.
+    /// </remarks>
+    private async Task<LoggingActivityScope> InsertAndWrapAsync(
+        LoggingActivity entity,
+        DateTime createdOn,
+        Activity activity,
+        IDisposable? logScope,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await this._activityRepository
+                .InsertAsync(entity, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch
+        {
+            logScope?.Dispose();
+            activity.Dispose();
+            throw;
+        }
+
+        return new LoggingActivityScope(entity.Id, createdOn, activity, logScope);
+    }
 
     /// <summary>
     /// Shared body for the two <c>CompleteAsync</c> overloads. Rejects
