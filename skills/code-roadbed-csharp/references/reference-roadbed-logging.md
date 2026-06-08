@@ -284,12 +284,13 @@ public sealed class FooIngestionJob : BaseSchedulingJob<FooIngestionJob>
 
 Any `ILogger` call emitted **while a `LoggingActivityScope` is alive on the
 current async flow** is automatically stamped with that scope's
-`activity_id` — you do **not** pass the id to the logger. `BeginAsync`
-establishes the correlation in two ambient channels, and
-`RoadbedDbLogRecordExporter` reads them per log record:
-
-- the **MEL logging scope** state key `activity_id` (primary), and
-- `Activity.Current`'s `roadbed.activity_id` tag (fallback).
+`activity_id` — you do **not** pass the id to the logger. `BeginAsync` starts
+a diagnostic `Activity` and tags it with `roadbed.activity_id`; that same
+`Activity` feeds the `trace_id` / `span_id` columns, so `activity_id` has
+**identical coverage** to them — every row that has a trace id also has its
+activity id. `RoadbedDbLogRecordExporter` reads the value from the ambient
+`Activity` (with the MEL logging scope key `activity_id` as a secondary
+source for code paths that open their own scope, e.g. the bulk-insert path).
 
 The ambient state is pushed in the **caller's** execution context, so it
 flows to the `await BeginAsync(...)` caller and to any code it awaits while
@@ -299,12 +300,15 @@ optional and independent — that only lands the value in the row's
 scope is disposed, `Activity.Current` reverts and later log lines are no
 longer stamped.
 
-> Requires the Roadbed.Logging build where `BeginAsync` pushes the ambient
-> in the caller's frame. In earlier builds `BeginAsync` was `async` and the
-> scope/`Activity` were established inside its state machine, so .NET's
-> `ExecutionContext` restore discarded them before control returned to the
-> caller — leaving `activity_id` NULL even though `properties.ActivityId`
-> was set. If you see that symptom, re-vendor `Roadbed.Logging.dll`.
+> Requires a Roadbed.Logging build with **both** fixes: `BeginAsync` pushes
+> the ambient in the caller's frame (earlier `async` builds had .NET's
+> `ExecutionContext` restore discard it, leaving every caller log NULL), and
+> the OTel pipeline exports through the **synchronous** processor (earlier
+> builds used a batch processor that read `Activity.Current` on a background
+> drain thread, so `activity_id` landed only on rows whose code path opened
+> its own scope — the orchestrator's own log lines stayed NULL even though
+> `trace_id` / `span_id` and `properties.ActivityId` were present). If you
+> see that split-coverage symptom, re-vendor `Roadbed.Logging.dll`.
 
 ### Heartbeating from a long-running step
 
