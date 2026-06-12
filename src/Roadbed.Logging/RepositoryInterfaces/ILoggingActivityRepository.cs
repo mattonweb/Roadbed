@@ -1,6 +1,7 @@
 namespace Roadbed.Logging;
 
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -96,6 +97,58 @@ internal interface ILoggingActivityRepository
         DateTime completedOn,
         string error,
         string errorType,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Finds the ids of <c>running</c> activity rows for one application that
+    /// show no sign of life since <paramref name="staleBeforeUtc"/>.
+    /// </summary>
+    /// <param name="application">The owning application; every candidate row must match it exactly. Never null/blank.</param>
+    /// <param name="environment">When non-blank, candidates must also match this environment exactly; when blank, the environment column is not filtered.</param>
+    /// <param name="staleBeforeUtc">Cutoff: a row is stale when <c>COALESCE(last_heartbeat_on, started_on, created_on)</c> is strictly older than this UTC moment.</param>
+    /// <param name="cancellationToken">Token to notify when the operation should be canceled.</param>
+    /// <returns>The matching activity ids; empty when none are stale.</returns>
+    /// <remarks>
+    /// Read-only. The <c>COALESCE</c> chain protects a just-begun run that has
+    /// not emitted its first heartbeat from being reported stale on the
+    /// strength of an old — but absent — heartbeat. The query is always
+    /// scoped to a single <paramref name="application"/> (and
+    /// <paramref name="environment"/> when set); there is no cross-application
+    /// surface.
+    /// </remarks>
+    Task<IReadOnlyList<string>> FindStaleAsync(
+        string application,
+        string? environment,
+        DateTime staleBeforeUtc,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Transitions the supplied <c>running</c> activity rows to a terminal
+    /// status in a single set-based UPDATE, scoped to one application.
+    /// </summary>
+    /// <param name="activityIds">Ids to reap (typically the output of <see cref="FindStaleAsync"/>). A no-op when empty.</param>
+    /// <param name="application">The owning application; included in the WHERE clause as a defense-in-depth guard so the UPDATE can never touch another application's row.</param>
+    /// <param name="environment">When non-blank, also required to match in the WHERE clause.</param>
+    /// <param name="terminalStatus">Terminal status to record (the reaper uses <see cref="LoggingActivityStatus.Canceled"/>).</param>
+    /// <param name="reapedOnUtc">Explicit UTC value stamped into both <c>completed_on</c> and <c>last_modified_on</c> (the framework's UTC-override contract; never relies on the <c>ON UPDATE</c> trigger).</param>
+    /// <param name="metricsJson">JSON written to the <c>metrics</c> column to mark the row as reaped; <c>error</c>/<c>error_type</c> are intentionally left untouched.</param>
+    /// <param name="cancellationToken">Token to notify when the operation should be canceled.</param>
+    /// <returns>A task that completes when the UPDATE has run.</returns>
+    /// <remarks>
+    /// The UPDATE re-asserts <c>status = 'running'</c> so a row that reached a
+    /// terminal status between the find and the reap is left alone. The
+    /// <c>activity</c> table is RANGE-partitioned on <c>created_on</c> and this
+    /// sweep does not prune partitions; it relies on the
+    /// <c>(application, status, created_on)</c> index and is expected to run
+    /// infrequently.
+    /// </remarks>
+    Task ReapAsync(
+        IReadOnlyList<string> activityIds,
+        string application,
+        string? environment,
+        LoggingActivityStatus terminalStatus,
+        DateTime reapedOnUtc,
+        string? metricsJson,
         CancellationToken cancellationToken = default);
 
     #endregion Public Methods

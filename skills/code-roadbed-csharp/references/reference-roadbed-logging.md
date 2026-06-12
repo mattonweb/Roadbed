@@ -348,6 +348,43 @@ await this._activities.AddInputAsync(silverActivityId, bronzePlacesActivityId, i
 await this._activities.AddInputAsync(silverActivityId, bronzeCousubsActivityId, inputRole: "cousubs", cancellationToken);
 ```
 
+### Reaping crash-orphaned activities
+
+`CompleteAsync` / `FailAsync` finalize a run on normal completion and on
+in-process exceptions. They cannot run when the process is **force-killed,
+crashes hard, or loses power** — so the row is stranded in `status='running'`
+forever and skews fleet success-rate. A process cannot finalize its own sudden
+death; a *later, living* process detects the orphan by heartbeat staleness and
+transitions it on the dead instance's behalf.
+
+```csharp
+// Startup sweep (or a low-frequency scheduled job). The service is already
+// scoped to this app's LoggingOptions.Application (+ Environment when set);
+// it can NEVER read or modify another application's activities.
+IReadOnlyList<string> reaped = await activities.ReapStaleActivitiesAsync(
+    staleAfter: TimeSpan.FromMinutes(30),
+    reason: "startup-sweep",
+    cancellationToken);
+
+if (reaped.Count > 0)
+{
+    logger.LogWarning("Reaped {Count} stale activities: {Ids}", reaped.Count, string.Join(", ", reaped));
+}
+```
+
+- **Staleness** = `COALESCE(last_heartbeat_on, started_on, created_on) <
+  (UtcNow - staleAfter)`. The `created_on` fallback protects a just-begun run
+  that has not emitted its first heartbeat from being reaped instantly.
+- Reaped rows become **`Canceled`** (never Succeeded/Failed) and carry
+  `{"reaped":true,"reason":...,"stale_after_seconds":N}` in `metrics`, so they
+  are distinguishable from app-initiated cancellations. `error`/`error_type`
+  are left untouched.
+- Choose `staleAfter` comfortably above your heartbeat interval (e.g. ≥ 6×) so
+  a momentarily-paused-but-alive run is never reaped.
+- The library does **not** schedule this — you decide when to call it. There is
+  no cross-application "admin" reaper by design.
+- Use `FindStaleActivitiesAsync(staleAfter, ct)` for a read-only dry run.
+
 ## Common pitfalls
 
 ❌ Disposing the scope without calling `CompleteAsync`:
@@ -403,6 +440,8 @@ await activities.CompleteAsync(id, LoggingActivityStatus.Failed);  // throws Arg
 | Finish on exception                                        | `await service.FailAsync(activityId, exception, ct)`                                               |
 | Mark canceled / skipped                                    | `await service.CompleteAsync(activityId, LoggingActivityStatus.Canceled, ct)`                      |
 | Record a lineage edge                                      | `await service.AddInputAsync(consumerId, inputId, inputRole, ct)`                                  |
+| Reap this app's crash-orphaned runs                        | `await service.ReapStaleActivitiesAsync(TimeSpan.FromMinutes(30), reason, ct)`                     |
+| Dry-run the reaper (read-only)                             | `await service.FindStaleActivitiesAsync(TimeSpan.FromMinutes(30), ct)`                             |
 | Wire MEL → OTel → DB                                       | `builder.Logging.AddRoadbedDbLogging()`                                                            |
 | Override drop policy                                       | `new LoggingOptions { ChannelFullPolicy = LoggingChannelFullPolicy.BlockBriefly }`                  |
 

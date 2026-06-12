@@ -1,6 +1,7 @@
 namespace Roadbed.Logging;
 
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -46,6 +47,37 @@ internal static class LoggingSqlDispatcher
 
             DataConnectionStringType.SQLiteInMemory =>
                 SqliteExecutor.ExecuteAsync(request, factory, logger, cancellationToken),
+
+            var other => throw UnsupportedProvider(other),
+        };
+    }
+
+    /// <summary>
+    /// Executes a query against MySQL or SQLite and materializes the rows as
+    /// <typeparamref name="T"/>.
+    /// </summary>
+    /// <typeparam name="T">The row projection type (e.g. <see cref="string"/> for an id column).</typeparam>
+    /// <param name="request">The request carrying SQL and parameters.</param>
+    /// <param name="factory">The Roadbed.Logging database factory.</param>
+    /// <param name="logger">Logger used for retry diagnostics.</param>
+    /// <param name="cancellationToken">Token to notify when the operation should be canceled.</param>
+    /// <returns>The materialized rows.</returns>
+    public static Task<IEnumerable<T>> QueryAsync<T>(
+        DataExecutorRequest request,
+        ILoggingDatabaseFactory factory,
+        ILogger logger,
+        CancellationToken cancellationToken)
+    {
+        return factory.Connecion.ConnectionStringType switch
+        {
+            DataConnectionStringType.MySQL =>
+                MySqlExecutor.QueryAsync<T>(request, factory, logger, cancellationToken),
+
+            DataConnectionStringType.SQLite =>
+                SqliteExecutor.QueryAsync<T>(request, factory, logger, cancellationToken),
+
+            DataConnectionStringType.SQLiteInMemory =>
+                SqliteExecutor.QueryAsync<T>(request, factory, logger, cancellationToken),
 
             var other => throw UnsupportedProvider(other),
         };

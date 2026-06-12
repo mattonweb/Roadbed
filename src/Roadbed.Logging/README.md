@@ -34,6 +34,10 @@ log_entries                  ── MySQL partitioned monthly, or SQLite plain t
 
 Roadbed.Logging **does not generate identifiers**. The consuming app owns ULID generation and any ULID NuGet dependency.
 
+### Reaping crash-orphaned runs
+
+A process force-killed mid-run cannot write its own terminal status, leaving the row stuck in `running`. `ReapStaleActivitiesAsync(staleAfter, reason, ct)` lets a later, living process clean up — it transitions this application's stale `running` rows (last sign of life, `COALESCE(last_heartbeat_on, started_on, created_on)`, older than `staleAfter`) to `Canceled`, records the reason in `metrics`, and returns the reaped ids. It is **strictly scoped to `LoggingOptions.Application`** (and `Environment` when set) and never touches another application's rows. `FindStaleActivitiesAsync` is the read-only dry run. The library does not schedule the sweep — the host decides when to call it (startup, scheduled job).
+
 ## What it does not do
 
 - Does **not** depend on `Roadbed.Crud`. The log-write path is an internal custom bulk insert that stamps each row with its own `activity_id` — distinct from the CRUDALBT "B" tier which stamps every row with one uniform identifier.

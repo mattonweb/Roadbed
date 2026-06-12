@@ -6,6 +6,7 @@ using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
 
 /// <summary>
 /// Default implementation of <see cref="ILoggingActivityService"/>.
@@ -314,9 +315,93 @@ public sealed class LoggingActivityService
         return this._activityInputRepository.InsertAsync(entity, cancellationToken);
     }
 
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<string>> ReapStaleActivitiesAsync(
+        TimeSpan staleAfter,
+        string? reason = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(staleAfter, TimeSpan.Zero);
+
+        DateTime nowUtc = DateTime.UtcNow;
+        DateTime staleBefore = nowUtc - staleAfter;
+        string? environment = this.ScopedEnvironment();
+
+        IReadOnlyList<string> stale = await this._activityRepository
+            .FindStaleAsync(this._options.Application, environment, staleBefore, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (stale.Count == 0)
+        {
+            return stale;
+        }
+
+        string metricsJson = BuildReapMetricsJson(reason, staleAfter);
+
+        // Always reaped as Canceled — never Succeeded/Failed. The reason lives
+        // in metrics; error/error_type stay reserved for real exceptions.
+        await this._activityRepository
+            .ReapAsync(
+                stale,
+                this._options.Application,
+                environment,
+                LoggingActivityStatus.Canceled,
+                nowUtc,
+                metricsJson,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        return stale;
+    }
+
+    /// <inheritdoc/>
+    public Task<IReadOnlyList<string>> FindStaleActivitiesAsync(
+        TimeSpan staleAfter,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(staleAfter, TimeSpan.Zero);
+
+        DateTime staleBefore = DateTime.UtcNow - staleAfter;
+
+        return this._activityRepository.FindStaleAsync(
+            this._options.Application,
+            this.ScopedEnvironment(),
+            staleBefore,
+            cancellationToken);
+    }
+
     #endregion Public Methods
 
     #region Private Methods
+
+    /// <summary>
+    /// Serializes the reap marker written to a reaped row's <c>metrics</c>
+    /// column.
+    /// </summary>
+    /// <param name="reason">Optional caller-supplied reason.</param>
+    /// <param name="staleAfter">The staleness threshold the sweep used.</param>
+    /// <returns>A compact JSON object of the form <c>{"reaped":true,"reason":...,"stale_after_seconds":N}</c>.</returns>
+    private static string BuildReapMetricsJson(string? reason, TimeSpan staleAfter)
+    {
+        return JsonConvert.SerializeObject(new
+        {
+            reaped = true,
+            reason,
+            stale_after_seconds = (long)staleAfter.TotalSeconds,
+        });
+    }
+
+    /// <summary>
+    /// Returns the configured environment normalized to <c>null</c> when blank,
+    /// so the repository only filters on environment when one is actually set.
+    /// </summary>
+    /// <returns>The non-blank environment, or <c>null</c>.</returns>
+    private string? ScopedEnvironment()
+    {
+        return string.IsNullOrWhiteSpace(this._options.Environment)
+            ? null
+            : this._options.Environment;
+    }
 
     /// <summary>
     /// Awaitable tail of <see cref="BeginAsync"/>: performs the activity-row

@@ -1,6 +1,8 @@
 namespace Roadbed.Logging;
 
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Dapper;
@@ -15,6 +17,13 @@ internal sealed class LoggingActivityRepository
       ILoggingActivityRepository
 {
     #region Private Fields
+
+    /// <summary>
+    /// Lowercase wire value of <see cref="LoggingActivityStatus.Running"/>,
+    /// matching the <c>activity.status</c> column's stored form.
+    /// </summary>
+    private static readonly string RunningStatusValue =
+        LoggingActivityStatus.Running.ToString().ToLowerInvariant();
 
     private readonly ILoggingDatabaseFactory _factory;
     private readonly string _tableRef;
@@ -351,6 +360,109 @@ internal sealed class LoggingActivityRepository
             .ConfigureAwait(false);
     }
 
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<string>> FindStaleAsync(
+        string application,
+        string? environment,
+        DateTime staleBeforeUtc,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(application);
+
+        string environmentClause = BuildEnvironmentClause(environment);
+
+        // "Last sign of life" is the most recent of last_heartbeat_on,
+        // started_on, created_on. COALESCE picks the first non-null in that
+        // order; created_on is NOT NULL so the chain always resolves, which
+        // keeps a just-begun run (recent created_on, null heartbeat) out of
+        // the stale set.
+        string sql = $@"
+            SELECT id
+            FROM {this._tableRef}
+            WHERE status = @RunningStatus
+              AND application = @Application{environmentClause}
+              AND COALESCE(last_heartbeat_on, started_on, created_on) < @StaleBefore
+            ;";
+
+        var parameters = new DynamicParameters();
+        parameters.Add("RunningStatus", RunningStatusValue);
+        parameters.Add("Application", application);
+        parameters.Add("StaleBefore", staleBeforeUtc);
+        if (!string.IsNullOrWhiteSpace(environment))
+        {
+            parameters.Add("Environment", environment);
+        }
+
+        var request = new DataExecutorRequest(sql)
+        {
+            Parameters = parameters,
+        };
+
+        IEnumerable<string> ids = await LoggingSqlDispatcher
+            .QueryAsync<string>(request, this._factory, this.Logger, cancellationToken)
+            .ConfigureAwait(false);
+
+        return ids.ToList();
+    }
+
+    /// <inheritdoc/>
+    public async Task ReapAsync(
+        IReadOnlyList<string> activityIds,
+        string application,
+        string? environment,
+        LoggingActivityStatus terminalStatus,
+        DateTime reapedOnUtc,
+        string? metricsJson,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(activityIds);
+        ArgumentException.ThrowIfNullOrWhiteSpace(application);
+
+        if (activityIds.Count == 0)
+        {
+            return;
+        }
+
+        string environmentClause = BuildEnvironmentClause(environment);
+
+        // Set-based: one UPDATE reaps every supplied id. The WHERE re-asserts
+        // status = running (so a row that finalized between find and reap is
+        // left alone) and re-asserts application/environment as a defense-in-
+        // depth guard against ever touching another application's row.
+        string sql = $@"
+            UPDATE {this._tableRef}
+            SET
+                 status            = @Status
+                ,completed_on      = @ReapedOn
+                ,metrics           = @MetricsJson
+                ,last_modified_on  = @ReapedOn
+            WHERE id IN @ActivityIds
+              AND status = @RunningStatus
+              AND application = @Application{environmentClause}
+            ;";
+
+        var parameters = new DynamicParameters();
+        parameters.Add("Status", terminalStatus.ToString().ToLowerInvariant());
+        parameters.Add("ReapedOn", reapedOnUtc);
+        parameters.Add("MetricsJson", metricsJson);
+        parameters.Add("ActivityIds", activityIds);
+        parameters.Add("RunningStatus", RunningStatusValue);
+        parameters.Add("Application", application);
+        if (!string.IsNullOrWhiteSpace(environment))
+        {
+            parameters.Add("Environment", environment);
+        }
+
+        var request = new DataExecutorRequest(sql)
+        {
+            Parameters = parameters,
+        };
+
+        await LoggingSqlDispatcher
+            .ExecuteAsync(request, this._factory, this.Logger, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
     #endregion Public Methods
 
     #region Internal Methods
@@ -372,6 +484,25 @@ internal sealed class LoggingActivityRepository
         return createdOn.HasValue
             ? "WHERE id = @ActivityId AND created_on = @CreatedOn"
             : "WHERE id = @ActivityId";
+    }
+
+    /// <summary>
+    /// Builds the optional environment predicate appended to the reaper's
+    /// find/reap statements.
+    /// </summary>
+    /// <param name="environment">
+    /// When non-blank, the caller's configured environment. A blank value
+    /// (the default when <see cref="LoggingOptions.Environment"/> is unset)
+    /// suppresses environment filtering so the sweep covers every environment
+    /// of the application.
+    /// </param>
+    /// <returns><c>" AND environment = @Environment"</c> when an environment is supplied; otherwise an empty string.</returns>
+    /// <remarks>Exposed to <c>Roadbed.Test.Unit</c> for SQL-shape verification.</remarks>
+    internal static string BuildEnvironmentClause(string? environment)
+    {
+        return string.IsNullOrWhiteSpace(environment)
+            ? string.Empty
+            : " AND environment = @Environment";
     }
 
     #endregion Internal Methods
