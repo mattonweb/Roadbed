@@ -126,6 +126,16 @@ Dockerfile  text eol=lf
 *.bz2   binary
 *.xz    binary
 
+# Office documents are ZIP/OLE containers; mark binary so committed test
+# fixtures are never EOL-normalized (which corrupts them).
+*.xlsx  binary
+*.xlsb  binary
+*.xls   binary
+*.docx  binary
+*.doc   binary
+*.pptx  binary
+*.ppt   binary
+
 *.exe   binary
 *.dll   binary
 *.pdb   binary

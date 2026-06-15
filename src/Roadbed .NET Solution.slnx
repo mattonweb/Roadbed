@@ -16,6 +16,7 @@
   <Project Path="Roadbed.Data/Roadbed.Data.csproj" Id="d44e4793-96f5-4e70-af87-563fe5e59fcd" />
   <Project Path="Roadbed.IO.Csv/Roadbed.IO.Csv.csproj" Id="238da2b2-8413-4867-b8a5-dbd7a940d36a" />
   <Project Path="Roadbed.IO/Roadbed.IO.csproj" Id="47cdeba4-d3b1-4656-95e7-4d7760daecdf" />
+  <Project Path="Roadbed.IO.Xlsx/Roadbed.IO.Xlsx.csproj" />
   <Project Path="Roadbed.Logging/Roadbed.Logging.csproj" />
   <Project Path="Roadbed.Logging.MySql/Roadbed.Logging.MySql.csproj" />
   <Project Path="Roadbed.Logging.Sqlite/Roadbed.Logging.Sqlite.csproj" />

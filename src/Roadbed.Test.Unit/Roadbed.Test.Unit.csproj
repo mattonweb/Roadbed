@@ -30,6 +30,7 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<PackageReference Include="ClosedXML" Version="0.105.0" />
 		<PackageReference Include="CsvHelper" Version="33.1.0" />
 		<PackageReference Include="Dapper" Version="2.1.79" />
 		<PackageReference Include="KeePassLib.Standard" Version="2.57.1" />
@@ -56,6 +57,7 @@
 		<ProjectReference Include="..\Roadbed.Data.Sqlite\Roadbed.Data.Sqlite.csproj" />
 		<ProjectReference Include="..\Roadbed.Data\Roadbed.Data.csproj" />
 		<ProjectReference Include="..\Roadbed.IO.Csv\Roadbed.IO.Csv.csproj" />
+		<ProjectReference Include="..\Roadbed.IO.Xlsx\Roadbed.IO.Xlsx.csproj" />
 		<ProjectReference Include="..\Roadbed.IO\Roadbed.IO.csproj" />
 		<ProjectReference Include="..\Roadbed.Logging\Roadbed.Logging.csproj" />
 		<ProjectReference Include="..\Roadbed.Logging.MySql\Roadbed.Logging.MySql.csproj" />

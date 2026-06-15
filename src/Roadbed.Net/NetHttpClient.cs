@@ -2,10 +2,12 @@
 
 using System;
 using System.Diagnostics.CodeAnalysis;
+using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Sockets;
+using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -67,7 +69,11 @@ public class NetHttpClient
         try
         {
             HttpResponseMessage message =
-                await this.MakeRequestWithBackoffRetryAsync(request, cancellationToken);
+                await this.ExecuteWithBackoffRetryAsync(
+                    request,
+                    HttpCompletionOption.ResponseContentRead,
+                    onSuccessAsync: null,
+                    cancellationToken);
 
             // Add the Data
             if (message.IsSuccessStatusCode &&
@@ -155,6 +161,91 @@ public class NetHttpClient
         return response;
     }
 
+    /// <inheritdoc/>
+    public async Task<NetHttpResponse<NetHttpDownloadResult>> DownloadFileAsync(
+        NetHttpDownloadRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.DestinationPath);
+
+        this.LogDebug(
+            "HTTP download {Endpoint} -> {Destination}",
+            request.HttpEndPoint?.ToString() ?? "unknown",
+            request.DestinationPath);
+
+        if (!request.Overwrite && File.Exists(request.DestinationPath))
+        {
+            return NetHttpResponse<NetHttpDownloadResult>.Failure(
+                409,
+                "Conflict",
+                $"A file already exists at '{request.DestinationPath}' and Overwrite is false.");
+        }
+
+        string? directory = Path.GetDirectoryName(request.DestinationPath);
+        if (!string.IsNullOrEmpty(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        // Stream to a sibling .part file, then move into place only on success,
+        // so a failed/retried download never leaves a truncated file that looks
+        // complete.
+        string partPath = request.DestinationPath + ".part";
+        var progress = new DownloadProgress();
+
+        try
+        {
+            HttpResponseMessage message = await this.ExecuteWithBackoffRetryAsync(
+                request,
+                HttpCompletionOption.ResponseHeadersRead,
+                (response, token) => CopyResponseToPartFileAsync(response, partPath, request, progress, token),
+                cancellationToken);
+
+            if (!message.IsSuccessStatusCode)
+            {
+                DeleteIfExists(partPath);
+                return NetHttpResponse<NetHttpDownloadResult>.Failure(
+                    (int)message.StatusCode,
+                    message.ReasonPhrase,
+                    "Not a successful HTTP call. Status code indicates a failed download.");
+            }
+
+            // Atomic publish of the completed bytes.
+            File.Move(partPath, request.DestinationPath, overwrite: request.Overwrite);
+
+            this.LogDebug(
+                "HTTP download complete {Endpoint} ({Bytes} bytes)",
+                request.HttpEndPoint?.ToString() ?? "unknown",
+                progress.BytesWritten);
+
+            return NetHttpResponse<NetHttpDownloadResult>.Success(
+                (int)message.StatusCode,
+                message.ReasonPhrase,
+                new NetHttpDownloadResult
+                {
+                    FilePath = request.DestinationPath,
+                    BytesWritten = progress.BytesWritten,
+                    ContentType = progress.ContentType,
+                    ContentSha256 = progress.ContentSha256,
+                });
+        }
+        catch (Exception ex)
+        {
+            DeleteIfExists(partPath);
+
+            this.LogDebug(
+                ex,
+                "Download failed {Endpoint}",
+                request.HttpEndPoint?.ToString() ?? "unknown");
+
+            return NetHttpResponse<NetHttpDownloadResult>.Failure(
+                500,
+                string.Concat(ex?.Message, " ", ex?.InnerException?.Message),
+                "Not a successful HTTP call. The download could not be completed.");
+        }
+    }
+
     #endregion Public Methods
 
     #region Private Methods
@@ -233,6 +324,86 @@ public class NetHttpClient
     }
 
     /// <summary>
+    /// Copies a successful response body to the supplied <c>.part</c> file,
+    /// recording bytes written, content type, and (optionally) a SHA-256 hash
+    /// computed in the same single pass. Recreates the file on each invocation so
+    /// a retried attempt starts from an empty file.
+    /// </summary>
+    /// <param name="response">The successful HTTP response.</param>
+    /// <param name="partPath">Sibling temp path to write to.</param>
+    /// <param name="request">The originating download request.</param>
+    /// <param name="progress">Mutable carrier the caller reads after a successful copy.</param>
+    /// <param name="cancellationToken">Token to cancel the copy.</param>
+    /// <returns>A task that completes when the body has been written to disk.</returns>
+    private static async Task CopyResponseToPartFileAsync(
+        HttpResponseMessage response,
+        string partPath,
+        NetHttpDownloadRequest request,
+        DownloadProgress progress,
+        CancellationToken cancellationToken)
+    {
+        progress.ContentType = response.Content.Headers.ContentType?.ToString();
+
+        int bufferSize = request.BufferSizeBytes > 0 ? request.BufferSizeBytes : 81920;
+
+        using SHA256? sha256 = request.ComputeContentHash ? SHA256.Create() : null;
+
+        await using (var fileStream = new FileStream(
+            partPath,
+            FileMode.Create,
+            FileAccess.Write,
+            FileShare.None,
+            bufferSize,
+            useAsync: true))
+        {
+            await using Stream body = await response.Content.ReadAsStreamAsync(cancellationToken);
+
+            if (sha256 is not null)
+            {
+                // leaveOpen so we can read fileStream.Length before the outer using disposes it.
+                await using var crypto = new CryptoStream(fileStream, sha256, CryptoStreamMode.Write, leaveOpen: true);
+                await body.CopyToAsync(crypto, bufferSize, cancellationToken);
+                await crypto.FlushFinalBlockAsync(cancellationToken);
+            }
+            else
+            {
+                await body.CopyToAsync(fileStream, bufferSize, cancellationToken);
+            }
+
+            await fileStream.FlushAsync(cancellationToken);
+            progress.BytesWritten = fileStream.Length;
+        }
+
+        if (sha256 is not null)
+        {
+            progress.ContentSha256 = Convert.ToHexString(sha256.Hash!).ToLowerInvariant();
+        }
+    }
+
+    /// <summary>
+    /// Deletes a file if it exists, swallowing I/O errors (best-effort cleanup).
+    /// </summary>
+    /// <param name="path">Path to delete.</param>
+    private static void DeleteIfExists(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch (IOException)
+        {
+            // Best-effort cleanup; a leftover .part is preferable to masking the real error.
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Same rationale as IOException.
+        }
+    }
+
+    /// <summary>
     /// Create <see cref="HttpClient"/> using the factory.
     /// </summary>
     /// <param name="request"><see cref="NetHttpRequest"/> to use in the creation of the <see cref="HttpClient"/>.</param>
@@ -261,12 +432,15 @@ public class NetHttpClient
     /// HttpRequestMessage can only be sent once, so we must create a fresh instance
     /// for each attempt in the retry loop.
     /// </remarks>
-    private async Task<HttpResponseMessage> MakeRequestWithBackoffRetryAsync(
+    private async Task<HttpResponseMessage> ExecuteWithBackoffRetryAsync(
         NetHttpRequest request,
+        HttpCompletionOption completion,
+        Func<HttpResponseMessage, CancellationToken, Task>? onSuccessAsync,
         CancellationToken cancellationToken)
     {
         HttpResponseMessage? lastResponse = null;
         int totalAttempts = request.RetryPattern.MaxAttempts + 1;
+        TimeSpan attemptTimeout = TimeSpan.FromSeconds(request.TimeoutInSecondsPerAttempt);
 
         for (int attempt = 0; attempt <= request.RetryPattern.MaxAttempts; attempt++)
         {
@@ -280,11 +454,9 @@ public class NetHttpClient
                         // Send request with timeout
                         HttpResponseMessage response = await client.SendAsync(
                             message,
-                            HttpCompletionOption.ResponseContentRead,
+                            completion,
                             cancellationToken)
-                            .WaitAsync(
-                                TimeSpan.FromSeconds(request.TimeoutInSecondsPerAttempt),
-                                cancellationToken);
+                            .WaitAsync(attemptTimeout, cancellationToken);
 
                         // Determine if we want to try again
                         if ((response.StatusCode == HttpStatusCode.ServiceUnavailable) ||
@@ -317,6 +489,15 @@ public class NetHttpClient
                             break;
                         }
 
+                        // On success, consume the response inside the retried region so a
+                        // mid-body failure (e.g. a dropped connection while copying a large
+                        // download to disk) is retried, not surfaced as a partial success.
+                        // The per-attempt timeout covers the consume as well as the send.
+                        if (onSuccessAsync is not null && response.IsSuccessStatusCode)
+                        {
+                            await onSuccessAsync(response, cancellationToken).WaitAsync(attemptTimeout, cancellationToken);
+                        }
+
                         // Success or non-retriable status code
                         return response;
                     }
@@ -341,6 +522,31 @@ public class NetHttpClient
                     this.LogWarning(
                         ex,
                         "All retry attempts exhausted for {Method} {Endpoint} due to network error",
+                        request.Method,
+                        request.HttpEndPoint?.ToString() ?? "unknown");
+
+                    break;
+                }
+                catch (IOException ex)
+                {
+                    // A mid-stream read/write failure (most commonly a dropped connection
+                    // partway through a large body copy) - retry if attempts remain.
+                    if (attempt < request.RetryPattern.MaxAttempts)
+                    {
+                        this.LogDebug(
+                            ex,
+                            "I/O error streaming {Endpoint}, attempt {Attempt} of {TotalAttempts}, retrying after backoff",
+                            request.HttpEndPoint?.ToString() ?? "unknown",
+                            attempt + 1,
+                            totalAttempts);
+
+                        await WaitAsync(request, attempt, cancellationToken);
+                        continue;
+                    }
+
+                    this.LogWarning(
+                        ex,
+                        "All retry attempts exhausted for {Method} {Endpoint} due to an I/O error",
                         request.Method,
                         request.HttpEndPoint?.ToString() ?? "unknown");
 
@@ -408,4 +614,21 @@ public class NetHttpClient
     }
 
     #endregion Private Methods
+
+    #region Private Types
+
+    /// <summary>
+    /// Mutable carrier the download copy writes into and
+    /// <see cref="DownloadFileAsync"/> reads after a successful attempt.
+    /// </summary>
+    private sealed class DownloadProgress
+    {
+        public long BytesWritten { get; set; }
+
+        public string? ContentType { get; set; }
+
+        public string? ContentSha256 { get; set; }
+    }
+
+    #endregion Private Types
 }
