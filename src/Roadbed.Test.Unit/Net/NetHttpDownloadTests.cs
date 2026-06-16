@@ -1,7 +1,9 @@
 namespace Roadbed.Test.Unit.Net;
 
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Security.Cryptography;
@@ -197,6 +199,158 @@ public class NetHttpDownloadTests
             Assert.AreEqual(409, response.HttpStatusCode);
             Assert.AreEqual(0, handler.SendAsyncCallCount, "No HTTP request should be made when the file exists and Overwrite is false.");
             Assert.AreEqual("existing", await File.ReadAllTextAsync(dest), "Existing file must be untouched.");
+        }
+        finally
+        {
+            Cleanup(dest);
+        }
+    }
+
+    /// <summary>
+    /// On a 304 Not Modified, the download is a no-op: no file is created, no
+    /// .part is left behind, an existing destination file is preserved untouched,
+    /// and the result surfaces NotModified = true plus the ETag / Last-Modified /
+    /// rate-limit headers needed by the consumer's good-citizen policy.
+    /// </summary>
+    /// <returns>Task representing the test.</returns>
+    [TestMethod]
+    public async Task DownloadFileAsync_NotModified_PreservesExistingFileAndSurfacesHeaders()
+    {
+        // Arrange (Given)
+        var responseMessage = new HttpResponseMessage(HttpStatusCode.NotModified);
+        responseMessage.Headers.TryAddWithoutValidation("ETag", "\"v2\"");
+        responseMessage.Headers.TryAddWithoutValidation("Retry-After", "0");
+        responseMessage.Headers.TryAddWithoutValidation("X-RateLimit-Remaining", "5");
+        responseMessage.Content = new ByteArrayContent(Array.Empty<byte>());
+        responseMessage.Content.Headers.TryAddWithoutValidation("Last-Modified", "Wed, 21 Oct 2025 07:28:00 GMT");
+
+        var handler = new MockHttpMessageHandler();
+        handler.EnqueueResponse(responseMessage);
+
+        NetHttpClient client = CreateClient(handler);
+        string dest = NewTempPath();
+        const string existing = "previously-cached-bytes";
+        await File.WriteAllTextAsync(dest, existing);
+
+        try
+        {
+            NetHttpDownloadRequest request = CreateDownloadRequest(dest, maxAttempts: 0);
+            request.HttpHeaders.Add(new NetHttpHeader("If-None-Match", "\"v2\""));
+
+            // Act (When)
+            NetHttpResponse<NetHttpDownloadResult> response = await client.DownloadFileAsync(request);
+
+            // Assert (Then)
+            Assert.AreEqual(304, response.HttpStatusCode, "Status code 304 must be surfaced.");
+            Assert.IsTrue(response.Data.NotModified, "NotModified must be true on a 304 outcome.");
+            Assert.AreEqual(0, response.Data.BytesWritten, "No bytes are written on 304.");
+            Assert.IsEmpty(response.Errors, "304 is not an error.");
+
+            Assert.AreEqual(existing, await File.ReadAllTextAsync(dest), "Existing file must be untouched on 304.");
+            Assert.IsFalse(File.Exists(dest + ".part"), "No .part file should exist after a 304.");
+
+            // Response headers populated on BOTH the outer response and the inner result.
+            foreach (IReadOnlyList<NetHttpHeader> headers in new[] { response.ResponseHeaders, response.Data.ResponseHeaders })
+            {
+                Assert.IsTrue(
+                    headers.Any(h => string.Equals(h.Name, "ETag", StringComparison.OrdinalIgnoreCase) && h.Value == "\"v2\""),
+                    "ETag must be surfaced on a 304.");
+                Assert.IsTrue(
+                    headers.Any(h => string.Equals(h.Name, "Last-Modified", StringComparison.OrdinalIgnoreCase)),
+                    "Last-Modified (a content header) must be surfaced on a 304.");
+                Assert.IsTrue(
+                    headers.Any(h => string.Equals(h.Name, "X-RateLimit-Remaining", StringComparison.OrdinalIgnoreCase)),
+                    "RateLimit-* headers must be surfaced on a 304.");
+            }
+
+            HttpRequestMessage sent = handler.SentRequests[0];
+            Assert.IsTrue(sent.Headers.Contains("If-None-Match"), "If-None-Match must reach the server on a download GET.");
+        }
+        finally
+        {
+            Cleanup(dest);
+        }
+    }
+
+    /// <summary>
+    /// On a successful download, response headers from BOTH the general headers
+    /// (e.g. <c>ETag</c>) and content headers (e.g. <c>Content-Type</c>) are
+    /// surfaced on the result.
+    /// </summary>
+    /// <returns>Task representing the test.</returns>
+    [TestMethod]
+    public async Task DownloadFileAsync_Success_PopulatesResponseHeaders()
+    {
+        // Arrange (Given)
+        byte[] payload = RandomBytes(2_000);
+        var content = new ByteArrayContent(payload);
+        content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
+
+        var responseMessage = new HttpResponseMessage(HttpStatusCode.OK) { Content = content };
+        responseMessage.Headers.TryAddWithoutValidation("ETag", "\"v1\"");
+
+        var handler = new MockHttpMessageHandler();
+        handler.EnqueueResponse(responseMessage);
+
+        NetHttpClient client = CreateClient(handler);
+        string dest = NewTempPath();
+
+        try
+        {
+            // Act (When)
+            NetHttpResponse<NetHttpDownloadResult> response =
+                await client.DownloadFileAsync(CreateDownloadRequest(dest, maxAttempts: 0));
+
+            // Assert (Then)
+            Assert.IsTrue(response.IsSuccessStatusCode);
+            Assert.IsFalse(response.Data.NotModified, "A 2xx download is not NotModified.");
+
+            Assert.IsTrue(
+                response.Data.ResponseHeaders.Any(h => string.Equals(h.Name, "ETag", StringComparison.OrdinalIgnoreCase) && h.Value == "\"v1\""),
+                "ETag must be surfaced on a 2xx download.");
+            Assert.IsTrue(
+                response.Data.ResponseHeaders.Any(h => string.Equals(h.Name, "Content-Type", StringComparison.OrdinalIgnoreCase)),
+                "Content-Type (a content header) must be surfaced on a 2xx download.");
+        }
+        finally
+        {
+            Cleanup(dest);
+        }
+    }
+
+    /// <summary>
+    /// A browser-ish User-Agent set on a download request reaches the server. The
+    /// consumer's WAF-bypass policy depends on this.
+    /// </summary>
+    /// <returns>Task representing the test.</returns>
+    [TestMethod]
+    public async Task DownloadFileAsync_BrowserUserAgent_ReachesServer()
+    {
+        // Arrange (Given)
+        const string browserUserAgent =
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
+        byte[] payload = RandomBytes(100);
+        var handler = new MockHttpMessageHandler();
+        handler.EnqueueResponse(BinaryResponse(payload, "application/octet-stream"));
+
+        NetHttpClient client = CreateClient(handler);
+        string dest = NewTempPath();
+
+        try
+        {
+            NetHttpDownloadRequest request = CreateDownloadRequest(dest, maxAttempts: 0);
+            request.HttpHeaders.Add(new NetHttpHeader("User-Agent", browserUserAgent));
+
+            // Act (When)
+            await client.DownloadFileAsync(request);
+
+            // Assert (Then)
+            HttpRequestMessage sent = handler.SentRequests[0];
+            Assert.IsTrue(sent.Headers.Contains("User-Agent"));
+
+            string sentUserAgent = string.Join(" ", sent.Headers.GetValues("User-Agent"));
+            Assert.AreEqual(browserUserAgent, sentUserAgent);
         }
         finally
         {

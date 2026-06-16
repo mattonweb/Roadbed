@@ -1,4 +1,4 @@
-﻿namespace Roadbed.Net;
+namespace Roadbed.Net;
 
 using System.Collections.Generic;
 
@@ -24,6 +24,7 @@ public record NetHttpResponse<T>
         this.Data = value;
 
         this.Errors = new List<string>();
+        this.ResponseHeaders = System.Array.Empty<NetHttpHeader>();
 
         if (!string.IsNullOrEmpty(error))
         {
@@ -69,6 +70,32 @@ public record NetHttpResponse<T>
     /// Gets the HTTP status code description.
     /// </summary>
     public string? HttpStatusCodeDescription
+    {
+        get;
+        internal set;
+    }
+
+    /// <summary>
+    /// Gets the response headers returned by the server. Includes both general
+    /// response headers (e.g. <c>ETag</c>, <c>Retry-After</c>,
+    /// <c>RateLimit-*</c>/<c>X-RateLimit-*</c>) and content headers
+    /// (e.g. <c>Last-Modified</c>, <c>Content-Type</c>, <c>Content-Length</c>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Populated on every outcome — 2xx success, error, and 304 Not Modified.
+    /// Empty (never <c>null</c>) when no response was received (for example,
+    /// the request failed before reaching the server).
+    /// </para>
+    /// <para>
+    /// <b>Multi-valued headers</b> are represented as one
+    /// <see cref="NetHttpHeader"/> entry per value, all sharing the same
+    /// <see cref="NetHttpHeader.Name"/>. Callers that need a specific header's
+    /// values should filter by name; the order of entries for a given name
+    /// preserves the order returned by <see cref="System.Net.Http.HttpResponseMessage"/>.
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<NetHttpHeader> ResponseHeaders
     {
         get;
         internal set;

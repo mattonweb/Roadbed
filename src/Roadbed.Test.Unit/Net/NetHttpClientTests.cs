@@ -922,6 +922,192 @@ public class NetHttpClientTests
             "The HTTP request should use the POST method.");
     }
 
+    /// <summary>
+    /// Response headers from BOTH <see cref="HttpResponseMessage.Headers"/> (e.g.
+    /// <c>ETag</c>, <c>Retry-After</c>, <c>X-RateLimit-Remaining</c>) and
+    /// <see cref="HttpResponseMessage.Content"/>'s headers (e.g.
+    /// <c>Last-Modified</c>) are flattened into
+    /// <see cref="NetHttpResponse{T}.ResponseHeaders"/>. Multi-valued headers
+    /// produce one entry per value.
+    /// </summary>
+    /// <returns>Task representing the completed operation.</returns>
+    [TestMethod]
+    public async Task MakeHttpRequestAsync_PopulatesResponseHeaders_FromMessageAndContent()
+    {
+        // Arrange (Given)
+        var content = new StringContent("ok");
+        content.Headers.LastModified = new DateTimeOffset(2025, 1, 2, 3, 4, 5, TimeSpan.Zero);
+
+        var responseMessage = new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = content,
+        };
+
+        responseMessage.Headers.TryAddWithoutValidation("ETag", "\"abc123\"");
+        responseMessage.Headers.TryAddWithoutValidation("Retry-After", "30");
+        responseMessage.Headers.TryAddWithoutValidation("X-RateLimit-Remaining", "42");
+        responseMessage.Headers.TryAddWithoutValidation("Set-Cookie", "a=1");
+        responseMessage.Headers.TryAddWithoutValidation("Set-Cookie", "b=2");
+
+        var handler = new MockHttpMessageHandler();
+        handler.EnqueueResponse(responseMessage);
+
+        NetHttpClient client = CreateClient(handler);
+        NetHttpRequest request = CreateNoRetryRequest();
+
+        // Act (When)
+        NetHttpResponse<string> response = await client.MakeHttpRequestAsync<string>(request);
+
+        // Assert (Then)
+        Assert.IsNotNull(response.ResponseHeaders, "ResponseHeaders should never be null.");
+
+        Assert.IsTrue(
+            response.ResponseHeaders.Any(h => string.Equals(h.Name, "ETag", StringComparison.OrdinalIgnoreCase) && h.Value == "\"abc123\""),
+            "ETag should be surfaced from the general response headers.");
+
+        Assert.IsTrue(
+            response.ResponseHeaders.Any(h => string.Equals(h.Name, "Retry-After", StringComparison.OrdinalIgnoreCase) && h.Value == "30"),
+            "Retry-After should be surfaced from the general response headers.");
+
+        Assert.IsTrue(
+            response.ResponseHeaders.Any(h => string.Equals(h.Name, "X-RateLimit-Remaining", StringComparison.OrdinalIgnoreCase) && h.Value == "42"),
+            "X-RateLimit-Remaining should be surfaced from the general response headers.");
+
+        Assert.IsTrue(
+            response.ResponseHeaders.Any(h => string.Equals(h.Name, "Last-Modified", StringComparison.OrdinalIgnoreCase)),
+            "Last-Modified (a content header) should be surfaced alongside the general headers.");
+
+        int setCookieCount =
+            response.ResponseHeaders.Count(h => string.Equals(h.Name, "Set-Cookie", StringComparison.OrdinalIgnoreCase));
+
+        Assert.AreEqual(
+            2,
+            setCookieCount,
+            "Multi-valued headers should produce one entry per value, all sharing the same Name.");
+    }
+
+    /// <summary>
+    /// On a non-success status (e.g. 429), <see cref="NetHttpResponse{T}.ResponseHeaders"/>
+    /// is still populated so the caller can read <c>Retry-After</c>/<c>RateLimit-*</c>.
+    /// </summary>
+    /// <returns>Task representing the completed operation.</returns>
+    [TestMethod]
+    public async Task MakeHttpRequestAsync_RateLimited_PopulatesResponseHeadersAndStatus429()
+    {
+        // Arrange (Given)
+        var responseMessage = new HttpResponseMessage((HttpStatusCode)429)
+        {
+            Content = new StringContent("rate limited"),
+        };
+
+        responseMessage.Headers.TryAddWithoutValidation("Retry-After", "120");
+        responseMessage.Headers.TryAddWithoutValidation("X-RateLimit-Reset", "1700000000");
+
+        var handler = new MockHttpMessageHandler();
+        handler.EnqueueResponse(responseMessage);
+
+        NetHttpClient client = CreateClient(handler);
+        NetHttpRequest request = CreateRetryRequest(maxAttempts: 3);
+
+        // Act (When)
+        NetHttpResponse<string> response = await client.MakeHttpRequestAsync<string>(request);
+
+        // Assert (Then)
+        Assert.AreEqual(
+            1,
+            handler.SendAsyncCallCount,
+            "429 must NOT be retried by the built-in retry — the policy owns rate-limit backoff.");
+
+        Assert.IsFalse(response.IsSuccessStatusCode);
+        Assert.AreEqual(429, response.HttpStatusCode);
+
+        Assert.IsTrue(
+            response.ResponseHeaders.Any(h => string.Equals(h.Name, "Retry-After", StringComparison.OrdinalIgnoreCase) && h.Value == "120"),
+            "Retry-After must be surfaced on a 429.");
+        Assert.IsTrue(
+            response.ResponseHeaders.Any(h => string.Equals(h.Name, "X-RateLimit-Reset", StringComparison.OrdinalIgnoreCase) && h.Value == "1700000000"),
+            "X-RateLimit-Reset must be surfaced on a 429.");
+    }
+
+    /// <summary>
+    /// A complex, browser-ish User-Agent set via <see cref="NetHttpRequest.HttpHeaders"/>
+    /// reaches the server intact (this is a regression check against the prior
+    /// validating <c>Add</c> overload silently dropping restricted headers).
+    /// </summary>
+    /// <returns>Task representing the completed operation.</returns>
+    [TestMethod]
+    public async Task MakeHttpRequestAsync_BrowserUserAgent_IsTransmittedAsIs()
+    {
+        // Arrange (Given)
+        const string browserUserAgent =
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
+        var handler = new MockHttpMessageHandler();
+        handler.EnqueueResponse(HttpStatusCode.OK, "ok");
+
+        NetHttpClient client = CreateClient(handler);
+        NetHttpRequest request = CreateNoRetryRequest();
+        request.HttpHeaders.Add(new NetHttpHeader("User-Agent", browserUserAgent));
+        request.HttpHeaders.Add(new NetHttpHeader("If-None-Match", "\"abc123\""));
+        request.HttpHeaders.Add(new NetHttpHeader("If-Modified-Since", "Wed, 21 Oct 2025 07:28:00 GMT"));
+
+        // Act (When)
+        await client.MakeHttpRequestAsync<string>(request);
+
+        // Assert (Then)
+        HttpRequestMessage sent = handler.SentRequests[0];
+
+        Assert.IsTrue(
+            sent.Headers.Contains("User-Agent"),
+            "User-Agent must reach the server — it is a restricted header on HttpClient.");
+
+        // GetValues for User-Agent returns the parsed product/comment tokens;
+        // what reaches the wire is the join. Reassemble and assert against the
+        // original raw string so a future change that drops parts is caught.
+        string sentUserAgent = string.Join(" ", sent.Headers.GetValues("User-Agent"));
+        Assert.AreEqual(
+            browserUserAgent,
+            sentUserAgent,
+            "The full browser-ish User-Agent string must be transmitted unmodified.");
+
+        Assert.IsTrue(
+            sent.Headers.Contains("If-None-Match"),
+            "If-None-Match must reach the server for conditional GET.");
+        Assert.AreEqual("\"abc123\"", sent.Headers.GetValues("If-None-Match").First());
+
+        Assert.IsTrue(
+            sent.Headers.Contains("If-Modified-Since"),
+            "If-Modified-Since must reach the server for conditional GET.");
+    }
+
+    /// <summary>
+    /// <c>RetryPattern.MaxAttempts = 0</c> means exactly one HTTP send, even on a
+    /// status the built-in retry would otherwise treat as transient. The consumer
+    /// owns retry/backoff in this configuration.
+    /// </summary>
+    /// <returns>Task representing the completed operation.</returns>
+    [TestMethod]
+    public async Task MakeHttpRequestAsync_MaxAttemptsZero_SendsExactlyOnceEvenForRetriableStatus()
+    {
+        // Arrange (Given)
+        var handler = new MockHttpMessageHandler();
+        handler.EnqueueResponse(HttpStatusCode.ServiceUnavailable, "down");
+        handler.EnqueueResponse(HttpStatusCode.OK, "would-not-be-used");
+
+        NetHttpClient client = CreateClient(handler);
+        NetHttpRequest request = CreateNoRetryRequest();
+
+        // Act (When)
+        NetHttpResponse<string> response = await client.MakeHttpRequestAsync<string>(request);
+
+        // Assert (Then)
+        Assert.AreEqual(
+            1,
+            handler.SendAsyncCallCount,
+            "MaxAttempts = 0 must fully disable the built-in retry — exactly one HTTP send.");
+        Assert.AreEqual(503, response.HttpStatusCode);
+    }
+
     #endregion Public Methods
 
     #region Private Methods

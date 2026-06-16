@@ -1,6 +1,7 @@
 ﻿namespace Roadbed.Net;
 
 using System;
+using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Net;
@@ -75,6 +76,8 @@ public class NetHttpClient
                     onSuccessAsync: null,
                     cancellationToken);
 
+            IReadOnlyList<NetHttpHeader> responseHeaders = ExtractResponseHeaders(message);
+
             // Add the Data
             if (message.IsSuccessStatusCode &&
                 (message.StatusCode != HttpStatusCode.NotFound))
@@ -128,6 +131,8 @@ public class NetHttpClient
                         message.ReasonPhrase,
                         "Not a successful HTTP call. Status code indicates a failed HTTP Request.");
             }
+
+            response.ResponseHeaders = responseHeaders;
         }
         catch (HttpRequestException ex) when (ex.InnerException is SocketException)
         {
@@ -202,13 +207,50 @@ public class NetHttpClient
                 (response, token) => CopyResponseToPartFileAsync(response, partPath, request, progress, token),
                 cancellationToken);
 
+            IReadOnlyList<NetHttpHeader> responseHeaders = ExtractResponseHeaders(message);
+
+            // 304 Not Modified: a conditional GET (If-None-Match / If-Modified-Since)
+            // matched the server's current resource. Treat as a non-error short-circuit:
+            // leave any existing file at DestinationPath untouched, write nothing, and
+            // surface the response headers (ETag / Last-Modified / RateLimit-* etc.)
+            // so the caller can refresh its cache metadata.
+            if (message.StatusCode == HttpStatusCode.NotModified)
+            {
+                DeleteIfExists(partPath);
+
+                this.LogDebug(
+                    "HTTP 304 Not Modified {Endpoint}",
+                    request.HttpEndPoint?.ToString() ?? "unknown");
+
+                NetHttpResponse<NetHttpDownloadResult> notModifiedResponse =
+                    NetHttpResponse<NetHttpDownloadResult>.Success(
+                        (int)message.StatusCode,
+                        message.ReasonPhrase,
+                        new NetHttpDownloadResult
+                        {
+                            FilePath = request.DestinationPath,
+                            BytesWritten = 0,
+                            ContentType = null,
+                            ContentSha256 = null,
+                            NotModified = true,
+                            ResponseHeaders = responseHeaders,
+                        });
+
+                notModifiedResponse.ResponseHeaders = responseHeaders;
+
+                return notModifiedResponse;
+            }
+
             if (!message.IsSuccessStatusCode)
             {
                 DeleteIfExists(partPath);
-                return NetHttpResponse<NetHttpDownloadResult>.Failure(
-                    (int)message.StatusCode,
-                    message.ReasonPhrase,
-                    "Not a successful HTTP call. Status code indicates a failed download.");
+                NetHttpResponse<NetHttpDownloadResult> failure =
+                    NetHttpResponse<NetHttpDownloadResult>.Failure(
+                        (int)message.StatusCode,
+                        message.ReasonPhrase,
+                        "Not a successful HTTP call. Status code indicates a failed download.");
+                failure.ResponseHeaders = responseHeaders;
+                return failure;
             }
 
             // Atomic publish of the completed bytes.
@@ -219,16 +261,21 @@ public class NetHttpClient
                 request.HttpEndPoint?.ToString() ?? "unknown",
                 progress.BytesWritten);
 
-            return NetHttpResponse<NetHttpDownloadResult>.Success(
-                (int)message.StatusCode,
-                message.ReasonPhrase,
-                new NetHttpDownloadResult
-                {
-                    FilePath = request.DestinationPath,
-                    BytesWritten = progress.BytesWritten,
-                    ContentType = progress.ContentType,
-                    ContentSha256 = progress.ContentSha256,
-                });
+            NetHttpResponse<NetHttpDownloadResult> success =
+                NetHttpResponse<NetHttpDownloadResult>.Success(
+                    (int)message.StatusCode,
+                    message.ReasonPhrase,
+                    new NetHttpDownloadResult
+                    {
+                        FilePath = request.DestinationPath,
+                        BytesWritten = progress.BytesWritten,
+                        ContentType = progress.ContentType,
+                        ContentSha256 = progress.ContentSha256,
+                        ResponseHeaders = responseHeaders,
+                    });
+
+            success.ResponseHeaders = responseHeaders;
+            return success;
         }
         catch (Exception ex)
         {
@@ -272,14 +319,29 @@ public class NetHttpClient
             Content = request.Content,
         };
 
-        // Add HTTP Headers
+        // Add HTTP Headers. Use TryAddWithoutValidation so that:
+        //   * restricted/parser-strict headers (User-Agent, If-None-Match,
+        //     If-Modified-Since, Referer, ...) are transmitted as-is rather than
+        //     rejected by the validating Add overload (which would throw and lose
+        //     the header), and
+        //   * a WAF-bypassing browser-ish User-Agent string with multiple comments
+        //     reaches the server intact.
+        // Content-only headers (Content-Type, Content-Length, ...) fall through to
+        // a second attempt on Content.Headers when the request has Content.
         if (request.HttpHeaders != null)
         {
             foreach (NetHttpHeader header in request.HttpHeaders)
             {
-                if (!string.IsNullOrEmpty(header.Name))
+                if (string.IsNullOrEmpty(header.Name))
                 {
-                    message.Headers.Add(header.Name.Trim(), header.Value);
+                    continue;
+                }
+
+                string name = header.Name.Trim();
+
+                if (!message.Headers.TryAddWithoutValidation(name, header.Value))
+                {
+                    message.Content?.Headers.TryAddWithoutValidation(name, header.Value);
                 }
             }
         }
@@ -378,6 +440,48 @@ public class NetHttpClient
         {
             progress.ContentSha256 = Convert.ToHexString(sha256.Hash!).ToLowerInvariant();
         }
+    }
+
+    /// <summary>
+    /// Flattens the response's general headers and content headers into a single
+    /// read-only list of <see cref="NetHttpHeader"/> entries. Multi-valued headers
+    /// produce one entry per value, all sharing the same name, in the order
+    /// returned by <see cref="HttpResponseMessage"/>.
+    /// </summary>
+    /// <param name="message">The response to read headers from. May be <c>null</c>.</param>
+    /// <returns>
+    /// A flattened list of headers. Empty (never <c>null</c>) when
+    /// <paramref name="message"/> is <c>null</c>.
+    /// </returns>
+    private static IReadOnlyList<NetHttpHeader> ExtractResponseHeaders(HttpResponseMessage? message)
+    {
+        if (message is null)
+        {
+            return Array.Empty<NetHttpHeader>();
+        }
+
+        var headers = new List<NetHttpHeader>();
+
+        foreach (KeyValuePair<string, IEnumerable<string>> kvp in message.Headers)
+        {
+            foreach (string value in kvp.Value)
+            {
+                headers.Add(new NetHttpHeader(kvp.Key, value));
+            }
+        }
+
+        if (message.Content is not null)
+        {
+            foreach (KeyValuePair<string, IEnumerable<string>> kvp in message.Content.Headers)
+            {
+                foreach (string value in kvp.Value)
+                {
+                    headers.Add(new NetHttpHeader(kvp.Key, value));
+                }
+            }
+        }
+
+        return headers;
     }
 
     /// <summary>
