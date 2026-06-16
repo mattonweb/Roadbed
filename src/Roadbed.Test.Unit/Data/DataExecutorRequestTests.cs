@@ -215,6 +215,94 @@ public class DataExecutorRequestTests
     }
 
     /// <summary>
+    /// Unit test to verify that CommandTimeoutInSeconds defaults to null (use the connection default).
+    /// </summary>
+    [TestMethod]
+    public void CommandTimeoutInSeconds_DefaultsToNull()
+    {
+        // Arrange (Given) + Act (When)
+        var instance = new DataExecutorRequest("SELECT 1");
+
+        // Assert (Then)
+        Assert.IsNull(
+            instance.CommandTimeoutInSeconds,
+            "CommandTimeoutInSeconds should default to null so the connection default applies.");
+    }
+
+    /// <summary>
+    /// Unit test to verify that CommandTimeoutInSeconds accepts zero (no timeout).
+    /// </summary>
+    [TestMethod]
+    public void CommandTimeoutInSeconds_SetToZero_AcceptsValue()
+    {
+        // Arrange (Given)
+        var instance = new DataExecutorRequest("SELECT 1");
+
+        // Act (When)
+        instance.CommandTimeoutInSeconds = 0;
+
+        // Assert (Then)
+        Assert.AreEqual(0, instance.CommandTimeoutInSeconds, "Zero (no timeout) must be accepted.");
+    }
+
+    /// <summary>
+    /// Unit test to verify that CommandTimeoutInSeconds throws when set to a negative value.
+    /// </summary>
+    [TestMethod]
+    public void CommandTimeoutInSeconds_SetNegativeValue_ThrowsArgumentOutOfRangeException()
+    {
+        // Arrange (Given)
+        var instance = new DataExecutorRequest("SELECT 1");
+        bool exceptionThrown = false;
+
+        // Act (When)
+        try
+        {
+            instance.CommandTimeoutInSeconds = -1;
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            exceptionThrown = true;
+        }
+
+        // Assert (Then)
+        Assert.IsTrue(
+            exceptionThrown,
+            "CommandTimeoutInSeconds should throw ArgumentOutOfRangeException when set to a negative value.");
+    }
+
+    /// <summary>
+    /// Unit test to verify that ResolveCommandTimeoutInSeconds returns the connection default when no override is set.
+    /// </summary>
+    [TestMethod]
+    public void ResolveCommandTimeoutInSeconds_NullOverride_ReturnsConnectionDefault()
+    {
+        // Arrange (Given)
+        var instance = new DataExecutorRequest("SELECT 1");
+
+        // Act (When)
+        int resolved = instance.ResolveCommandTimeoutInSeconds(connectionDefaultInSeconds: 5);
+
+        // Assert (Then)
+        Assert.AreEqual(5, resolved, "A null override must fall back to the supplied connection default.");
+    }
+
+    /// <summary>
+    /// Unit test to verify that ResolveCommandTimeoutInSeconds returns the override when one is set (including 0).
+    /// </summary>
+    [TestMethod]
+    public void ResolveCommandTimeoutInSeconds_WithOverride_ReturnsOverride()
+    {
+        // Arrange (Given)
+        var instance = new DataExecutorRequest("SELECT 1") { CommandTimeoutInSeconds = 120 };
+        var infinite = new DataExecutorRequest("SELECT 1") { CommandTimeoutInSeconds = 0 };
+
+        // Act (When) + Assert (Then)
+        Assert.AreEqual(120, instance.ResolveCommandTimeoutInSeconds(connectionDefaultInSeconds: 5), "An override must win over the connection default.");
+        Assert.AreEqual(0, infinite.ResolveCommandTimeoutInSeconds(connectionDefaultInSeconds: 5), "A 0 override (no timeout) must be honored, not treated as unset.");
+    }
+
+    /// <summary>
     /// Unit test to verify that DelayBetweenRetries property can be set to valid value.
     /// </summary>
     [TestMethod]

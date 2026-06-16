@@ -8,6 +8,14 @@ using System.Data.Common;
 public class DataConnecionString
 {
     /// <summary>
+    /// Default SQL command timeout, in seconds, applied when neither the request
+    /// nor the connection overrides it. Deliberately short: a query that needs
+    /// more is a signal to optimize the SQL or rethink the design, and any
+    /// override should carry a code comment saying why.
+    /// </summary>
+    public const int DefaultCommandTimeoutInSeconds = 5;
+
+    /// <summary>
     /// Container for the original connection string.
     /// </summary>
     private readonly string originalConnectionString = string.Empty;
@@ -33,6 +41,18 @@ public class DataConnecionString
         this.ConnectionStringType = connectionStringType;
         this.originalConnectionString = connectionString;
     }
+
+    /// <summary>
+    /// Gets or sets the default SQL command (statement) timeout, in seconds, for
+    /// executions against this connection. Defaults to
+    /// <see cref="DefaultCommandTimeoutInSeconds"/>. A per-execution
+    /// <c>DataExecutorRequest.CommandTimeoutInSeconds</c> overrides it.
+    /// </summary>
+    /// <remarks>
+    /// This is the command timeout (how long a statement may run), distinct from
+    /// <see cref="TimeoutInSeconds"/>, which is the connection-open timeout.
+    /// </remarks>
+    public int CommandTimeoutInSeconds { get; set; } = DefaultCommandTimeoutInSeconds;
 
     /// <summary>
     /// Gets the connection string.
@@ -96,10 +116,14 @@ public class DataConnecionString
     }
 
     /// <summary>
-    /// Gets or sets the Timeout for the connection string.
+    /// Gets or sets the connection-open (connect) timeout for the connection
+    /// string, in seconds.
     /// </summary>
     /// <remarks>
-    /// Timeout is in seconds.
+    /// This is the time allowed to <em>establish</em> a connection — distinct from
+    /// <see cref="CommandTimeoutInSeconds"/>, which bounds how long a statement may
+    /// run. It maps to <c>Connection Timeout</c> (MySQL) / <c>Timeout</c>
+    /// (PostgreSQL); on SQLite it maps to <c>Default Timeout</c>.
     /// </remarks>
     public int TimeoutInSeconds { get; set; } = 20;
 

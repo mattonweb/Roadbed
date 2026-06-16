@@ -250,6 +250,10 @@ public class DataConnecionStringTests
             20,
             connectionString.TimeoutInSeconds,
             "TimeoutInSeconds should be initialized to 20.");
+        Assert.AreEqual(
+            5,
+            connectionString.CommandTimeoutInSeconds,
+            "CommandTimeoutInSeconds should default to 5 (the pinned DefaultCommandTimeoutInSeconds).");
         Assert.IsNull(
             connectionString.DatabaseSource,
             "DatabaseSource should be initialized to null.");

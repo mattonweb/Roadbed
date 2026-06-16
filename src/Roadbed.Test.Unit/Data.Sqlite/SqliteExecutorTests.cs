@@ -146,6 +146,52 @@ public class SqliteExecutorTests
     }
 
     /// <summary>
+    /// Verifies that a request carrying an explicit <c>CommandTimeoutInSeconds</c>
+    /// flows through the executor's command-building path and runs successfully —
+    /// exercising the <c>CommandDefinition</c> plumbing for the per-execution
+    /// timeout override (both an explicit value and the connection default via null).
+    /// </summary>
+    /// <returns>Task that represents the asynchronous test operation.</returns>
+    [TestMethod]
+    public async Task ExecuteAsync_WithCommandTimeoutOverride_ExecutesSuccessfully()
+    {
+        // Arrange (Given)
+        int overridden = 0;
+        int defaulted = 0;
+        var connectionFactory = this.CreateConnectionFactory();
+
+        using var connection = (SqliteConnection)await connectionFactory.CreateOpenConnectionAsync(this.TestContext.CancellationToken);
+        using (var keepAlive = connection.KeepAlive())
+        {
+            await SqliteExecutor.ExecuteAsync(
+                new DataExecutorRequest("CREATE TABLE TestTable (Id INTEGER PRIMARY KEY)") { RetriesEnabled = false },
+                connectionFactory);
+
+            // Explicit per-execution override.
+            overridden = await SqliteExecutor.ExecuteAsync(
+                new DataExecutorRequest("INSERT INTO TestTable (Id) VALUES (1)")
+                {
+                    RetriesEnabled = false,
+                    CommandTimeoutInSeconds = 30,
+                },
+                connectionFactory);
+
+            // Null override -> connection default command timeout.
+            defaulted = await SqliteExecutor.ExecuteAsync(
+                new DataExecutorRequest("INSERT INTO TestTable (Id) VALUES (2)")
+                {
+                    RetriesEnabled = false,
+                    CommandTimeoutInSeconds = null,
+                },
+                connectionFactory);
+        }
+
+        // Assert (Then)
+        Assert.AreEqual(1, overridden, "Insert with an explicit command timeout should affect one row.");
+        Assert.AreEqual(1, defaulted, "Insert using the connection default command timeout should affect one row.");
+    }
+
+    /// <summary>
     /// Unit test to verify that ExecuteAsync works without logger.
     /// </summary>
     /// <returns>Task that represents the asynchronous test operation.</returns>

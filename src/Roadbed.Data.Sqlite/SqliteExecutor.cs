@@ -48,7 +48,7 @@ public static class SqliteExecutor
             using (var dbConnection = await connectionFactory.CreateOpenConnectionAsync(cancellationToken).ConfigureAwait(false))
             {
                 return await dbConnection
-                    .ExecuteAsync(request.Query, request.Parameters)
+                    .ExecuteAsync(CreateCommand(request, connectionFactory))
                     .ConfigureAwait(false);
             }
         }
@@ -90,7 +90,7 @@ public static class SqliteExecutor
             using (var dbConnection = await connectionFactory.CreateOpenConnectionAsync(cancellationToken).ConfigureAwait(false))
             {
                 return await dbConnection
-                    .QueryAsync<T>(request.Query, request.Parameters)
+                    .QueryAsync<T>(CreateCommand(request, connectionFactory))
                     .ConfigureAwait(false);
             }
         }
@@ -132,7 +132,7 @@ public static class SqliteExecutor
             using (var dbConnection = await connectionFactory.CreateOpenConnectionAsync(cancellationToken).ConfigureAwait(false))
             {
                 return await dbConnection
-                    .QuerySingleOrDefaultAsync<T>(request.Query, request.Parameters)
+                    .QuerySingleOrDefaultAsync<T>(CreateCommand(request, connectionFactory))
                     .ConfigureAwait(false);
             }
         }
@@ -174,7 +174,7 @@ public static class SqliteExecutor
             using (var dbConnection = await connectionFactory.CreateOpenConnectionAsync(cancellationToken).ConfigureAwait(false))
             {
                 return await dbConnection
-                    .ExecuteScalarAsync<T>(request.Query, request.Parameters)
+                    .ExecuteScalarAsync<T>(CreateCommand(request, connectionFactory))
                     .ConfigureAwait(false);
             }
         }
@@ -212,7 +212,7 @@ public static class SqliteExecutor
                     .ConfigureAwait(false))
                 {
                     int result = await dbConnection
-                        .ExecuteAsync(request.Query, request.Parameters)
+                        .ExecuteAsync(CreateCommand(request, connectionFactory))
                         .ConfigureAwait(false);
 
                     if (attempt > 0)
@@ -288,7 +288,7 @@ public static class SqliteExecutor
                     .ConfigureAwait(false))
                 {
                     var result = await dbConnection
-                        .QueryAsync<T>(request.Query, request.Parameters)
+                        .QueryAsync<T>(CreateCommand(request, connectionFactory))
                         .ConfigureAwait(false);
 
                     if (attempt > 0)
@@ -364,7 +364,7 @@ public static class SqliteExecutor
                     .ConfigureAwait(false))
                 {
                     var result = await dbConnection
-                        .QuerySingleOrDefaultAsync<T>(request.Query, request.Parameters)
+                        .QuerySingleOrDefaultAsync<T>(CreateCommand(request, connectionFactory))
                         .ConfigureAwait(false);
 
                     if (attempt > 0)
@@ -440,7 +440,7 @@ public static class SqliteExecutor
                     .ConfigureAwait(false))
                 {
                     var result = await dbConnection
-                        .ExecuteScalarAsync<T>(request.Query, request.Parameters)
+                        .ExecuteScalarAsync<T>(CreateCommand(request, connectionFactory))
                         .ConfigureAwait(false);
 
                     if (attempt > 0)
@@ -489,6 +489,25 @@ public static class SqliteExecutor
         throw new InvalidOperationException(
             $"Failed to execute scalar query after {request.MaxRetries} retries.",
             lastException);
+    }
+
+    /// <summary>
+    /// Builds the Dapper command for an execution, applying the resolved command
+    /// timeout — the per-execution <see cref="DataExecutorRequest.CommandTimeoutInSeconds"/>
+    /// override when set, otherwise the connection's
+    /// <see cref="DataConnecionString.CommandTimeoutInSeconds"/> default.
+    /// </summary>
+    /// <param name="request">The execution request carrying the SQL, parameters, and any timeout override.</param>
+    /// <param name="connectionFactory">Connection factory supplying the default command timeout.</param>
+    /// <returns>A <see cref="CommandDefinition"/> ready to pass to Dapper.</returns>
+    private static CommandDefinition CreateCommand(
+        DataExecutorRequest request,
+        IDataConnectionFactory connectionFactory)
+    {
+        return new CommandDefinition(
+            request.Query,
+            request.Parameters,
+            commandTimeout: request.ResolveCommandTimeoutInSeconds(connectionFactory.Connecion.CommandTimeoutInSeconds));
     }
 
     /// <summary>
