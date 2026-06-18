@@ -1,8 +1,8 @@
 namespace Roadbed.Test.Unit.Messaging;
 
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 using Roadbed.Common;
 using Roadbed.Messaging;
 
@@ -11,7 +11,7 @@ using Roadbed.Messaging;
 /// </summary>
 /// <remarks>
 /// These tests cover both the wire-format property names and the round-trip path that
-/// <c>JsonConvert.DeserializeObject&lt;MessagingMessageRequest&lt;T&gt;&gt;</c> consumers depend on.
+/// <c>JsonSerializer.Deserialize&lt;MessagingMessageRequest&lt;T&gt;&gt;</c> consumers depend on.
 /// </remarks>
 [TestClass]
 public class MessagingMessageRequestSerializationTests
@@ -33,8 +33,9 @@ public class MessagingMessageRequestSerializationTests
             "payload");
 
         // Act (When)
-        string json = JsonConvert.SerializeObject(request);
-        var jObject = JObject.Parse(json);
+        string json = JsonSerializer.Serialize(request, RoadbedJson.Options);
+        JsonNode? root = JsonNode.Parse(json);
+        JsonObject jObject = root!.AsObject();
 
         // Assert (Then)
         Assert.IsTrue(
@@ -69,8 +70,9 @@ public class MessagingMessageRequestSerializationTests
         var request = new MessagingMessageRequest<string>(publisher, "test.codename");
 
         // Act (When)
-        string json = JsonConvert.SerializeObject(request);
-        var jObject = JObject.Parse(json);
+        string json = JsonSerializer.Serialize(request, RoadbedJson.Options);
+        JsonNode? root = JsonNode.Parse(json);
+        JsonObject jObject = root!.AsObject();
 
         // Assert (Then)
         Assert.IsFalse(
@@ -98,8 +100,8 @@ public class MessagingMessageRequestSerializationTests
             "payload");
 
         // Act (When)
-        string json = JsonConvert.SerializeObject(original);
-        var roundTripped = JsonConvert.DeserializeObject<MessagingMessageRequest<string>>(json);
+        string json = JsonSerializer.Serialize(original, RoadbedJson.Options);
+        var roundTripped = JsonSerializer.Deserialize<MessagingMessageRequest<string>>(json, RoadbedJson.Options);
 
         // Assert (Then)
         Assert.IsNotNull(

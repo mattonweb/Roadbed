@@ -1,8 +1,8 @@
 namespace Roadbed.Test.Unit.Messaging;
 
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 using Roadbed.Common;
 using Roadbed.Messaging;
 
@@ -12,7 +12,7 @@ using Roadbed.Messaging;
 /// </summary>
 /// <remarks>
 /// These tests pin the JSON property names that downstream consumers depend on. Renaming
-/// a property in C# without updating its <c>[JsonProperty]</c> attribute will break the
+/// a property in C# without updating its <c>[JsonPropertyName]</c> attribute will break the
 /// wire format silently — these tests fail loudly when that happens.
 /// </remarks>
 [TestClass]
@@ -34,8 +34,9 @@ public class MessagingMessageResponseSerializationTests
         };
 
         // Act (When)
-        string json = JsonConvert.SerializeObject(response);
-        var jObject = JObject.Parse(json);
+        string json = JsonSerializer.Serialize(response, RoadbedJson.Options);
+        JsonNode? root = JsonNode.Parse(json);
+        JsonObject jObject = root!.AsObject();
 
         // Assert (Then)
         Assert.IsTrue(
@@ -46,7 +47,7 @@ public class MessagingMessageResponseSerializationTests
             "JSON should NOT contain 'OriginalRequestIdentifier' (PascalCase).");
         Assert.AreEqual(
             "01HQRS6K2MFXVW8N9PQ2T3Y4Z5",
-            jObject["original_request_identifier"]?.Value<string>(),
+            jObject["original_request_identifier"]?.GetValue<string>(),
             "JSON value should match the OriginalRequestIdentifier set on the response.");
     }
 
@@ -64,13 +65,14 @@ public class MessagingMessageResponseSerializationTests
         };
 
         // Act (When)
-        string json = JsonConvert.SerializeObject(response);
-        var jObject = JObject.Parse(json);
+        string json = JsonSerializer.Serialize(response, RoadbedJson.Options);
+        JsonNode? root = JsonNode.Parse(json);
+        JsonObject jObject = root!.AsObject();
 
         // Assert (Then)
         Assert.IsFalse(
             jObject.ContainsKey("original_request_identifier"),
-            "JSON should omit 'original_request_identifier' when the value is null (NullValueHandling.Ignore).");
+            "JSON should omit 'original_request_identifier' when the value is null (DefaultIgnoreCondition.WhenWritingNull).");
     }
 
     /// <summary>
@@ -89,8 +91,9 @@ public class MessagingMessageResponseSerializationTests
             "payload");
 
         // Act (When)
-        string json = JsonConvert.SerializeObject(response);
-        var jObject = JObject.Parse(json);
+        string json = JsonSerializer.Serialize(response, RoadbedJson.Options);
+        JsonNode? root = JsonNode.Parse(json);
+        JsonObject jObject = root!.AsObject();
 
         // Assert (Then)
         Assert.IsTrue(
@@ -124,9 +127,10 @@ public class MessagingMessageResponseSerializationTests
         var response = new MessagingMessageResponse<string>(publisher, "test.codename");
 
         // Act (When)
-        string json = JsonConvert.SerializeObject(response);
-        var jObject = JObject.Parse(json);
-        var publisherJson = jObject["publisher"] as JObject;
+        string json = JsonSerializer.Serialize(response, RoadbedJson.Options);
+        JsonNode? root = JsonNode.Parse(json);
+        JsonObject jObject = root!.AsObject();
+        JsonObject? publisherJson = jObject["publisher"]?.AsObject();
 
         // Assert (Then)
         Assert.IsNotNull(
@@ -159,8 +163,8 @@ public class MessagingMessageResponseSerializationTests
         };
 
         // Act (When)
-        string json = JsonConvert.SerializeObject(original);
-        var roundTripped = JsonConvert.DeserializeObject<MessagingMessageResponse<string>>(json);
+        string json = JsonSerializer.Serialize(original, RoadbedJson.Options);
+        var roundTripped = JsonSerializer.Deserialize<MessagingMessageResponse<string>>(json, RoadbedJson.Options);
 
         // Assert (Then)
         Assert.IsNotNull(
@@ -189,8 +193,8 @@ public class MessagingMessageResponseSerializationTests
             "payload");
 
         // Act (When)
-        string json = JsonConvert.SerializeObject(original);
-        var roundTripped = JsonConvert.DeserializeObject<MessagingMessageResponse<string>>(json);
+        string json = JsonSerializer.Serialize(original, RoadbedJson.Options);
+        var roundTripped = JsonSerializer.Deserialize<MessagingMessageResponse<string>>(json, RoadbedJson.Options);
 
         // Assert (Then)
         Assert.IsNotNull(

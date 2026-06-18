@@ -3,8 +3,8 @@ namespace Roadbed.Logging;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Text.Json;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
 using OpenTelemetry;
 using OpenTelemetry.Logs;
 
@@ -158,7 +158,7 @@ internal sealed class RoadbedDbLogRecordExporter : BaseExporter<LogRecord>
             MessageTemplate = messageTemplate,
             PropertiesJson = namedArgs is null
                 ? null
-                : JsonConvert.SerializeObject(namedArgs),
+                : JsonSerializer.Serialize(namedArgs, RoadbedJson.Options),
             Exception = record.Exception?.Message,
             ExceptionType = record.Exception?.GetType().FullName ?? record.Exception?.GetType().Name,
             ActivityId = activityId,

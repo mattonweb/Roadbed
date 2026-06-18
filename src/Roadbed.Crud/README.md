@@ -55,18 +55,18 @@ Each composite is available in **Async** and **Sync** variants, and at both the 
 ```csharp
 namespace Roadbed.Sdk.Customers;
 
-using Newtonsoft.Json;
+using System.Text.Json.Serialization;
 using Roadbed.Crud;
 
 public sealed record Customer : BaseEntityRecord<string>
 {
-    [JsonProperty("id")]
+    [JsonPropertyName("id")]
     public override string? Id { get; set; }
 
-    [JsonProperty("name")]
+    [JsonPropertyName("name")]
     required public string Name { get; set; }
 
-    [JsonProperty("email")]
+    [JsonPropertyName("email")]
     required public string Email { get; set; }
 }
 ```
@@ -228,7 +228,7 @@ services.AddSingleton<ICustomerService, CustomerService>();
 
 - .NET 10.0+
 - Microsoft.Extensions.Logging
-- Newtonsoft.Json
+- System.Text.Json (built into the runtime)
 - Roadbed.Common (BaseClassWithLogging)
 
 ## Related Packages

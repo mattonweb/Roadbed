@@ -339,7 +339,7 @@ await this._activities.UpdateAsync(
         ActivityId = scope.ActivityId,
         CreatedOn  = scope.CreatedOn,           // enables MySQL partition pruning
         Target = $"ops.{table}",                // discovered after Begin
-        ParametersJson = JsonConvert.SerializeObject(currentParameters),
+        ParametersJson = JsonSerializer.Serialize(currentParameters, RoadbedJson.Options),
         RecordsImpacted = runningTotal,
     },
     cancellationToken);

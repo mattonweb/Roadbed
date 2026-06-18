@@ -1,10 +1,11 @@
-﻿namespace Roadbed.Test.Unit.Common;
+namespace Roadbed.Test.Unit.Common;
 
 using System;
 using System.Collections.Generic;
-using System.Linq;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Newtonsoft.Json;
 using Roadbed.Common;
 using Roadbed.Common.Converters;
 
@@ -17,18 +18,12 @@ public class CommonKeyValuePairListConverterTests
     #region Public Methods
 
     /// <summary>
-    /// Verifies that the converter works with JsonSerializerSettings.
+    /// Verifies that the converter works with the shared <see cref="RoadbedJson.Options"/>.
     /// </summary>
     [TestMethod]
-    public void Integration_WithCustomSerializerSettings_ShouldWorkCorrectly()
+    public void Integration_WithRoadbedJsonOptions_ShouldWorkCorrectly()
     {
         // Arrange
-        var settings = new JsonSerializerSettings
-        {
-            Formatting = Formatting.Indented,
-            NullValueHandling = NullValueHandling.Ignore,
-        };
-
         var obj = new TestObject
         {
             Data = new List<CommonKeyValuePair<string, string>>
@@ -38,8 +33,8 @@ public class CommonKeyValuePairListConverterTests
         };
 
         // Act
-        string json = JsonConvert.SerializeObject(obj, settings);
-        var deserialized = JsonConvert.DeserializeObject<TestObject>(json, settings);
+        string json = JsonSerializer.Serialize(obj, RoadbedJson.Options);
+        var deserialized = JsonSerializer.Deserialize<TestObject>(json, RoadbedJson.Options);
 
         // Assert
         Assert.IsNotNull(deserialized);
@@ -50,16 +45,16 @@ public class CommonKeyValuePairListConverterTests
     }
 
     /// <summary>
-    /// Verifies that ReadJson works with boolean values.
+    /// Verifies that Read works with boolean values.
     /// </summary>
     [TestMethod]
-    public void ReadJson_WithBooleanValues_ShouldDeserializeCorrectly()
+    public void Read_WithBooleanValues_ShouldDeserializeCorrectly()
     {
         // Arrange
         string json = @"{""data"":{""IsActive"":true,""IsDeleted"":false}}";
 
         // Act
-        var result = JsonConvert.DeserializeObject<TestObjectWithBoolValue>(json);
+        var result = JsonSerializer.Deserialize<TestObjectWithBoolValue>(json, RoadbedJson.Options);
 
         // Assert
         Assert.IsNotNull(result);
@@ -72,16 +67,16 @@ public class CommonKeyValuePairListConverterTests
     }
 
     /// <summary>
-    /// Verifies that ReadJson works with decimal values.
+    /// Verifies that Read works with decimal values.
     /// </summary>
     [TestMethod]
-    public void ReadJson_WithDecimalValues_ShouldDeserializeCorrectly()
+    public void Read_WithDecimalValues_ShouldDeserializeCorrectly()
     {
         // Arrange
         string json = @"{""data"":{""Price"":19.99,""Tax"":1.50}}";
 
         // Act
-        var result = JsonConvert.DeserializeObject<TestObjectWithDecimalValue>(json);
+        var result = JsonSerializer.Deserialize<TestObjectWithDecimalValue>(json, RoadbedJson.Options);
 
         // Assert
         Assert.IsNotNull(result);
@@ -94,16 +89,16 @@ public class CommonKeyValuePairListConverterTests
     }
 
     /// <summary>
-    /// Verifies that ReadJson handles empty JSON object correctly.
+    /// Verifies that Read handles empty JSON object correctly.
     /// </summary>
     [TestMethod]
-    public void ReadJson_WithEmptyObject_ShouldReturnEmptyList()
+    public void Read_WithEmptyObject_ShouldReturnEmptyList()
     {
         // Arrange
         string json = @"{""data"":{}}";
 
         // Act
-        var result = JsonConvert.DeserializeObject<TestObject>(json);
+        var result = JsonSerializer.Deserialize<TestObject>(json, RoadbedJson.Options);
 
         // Assert
         Assert.IsNotNull(result);
@@ -112,16 +107,16 @@ public class CommonKeyValuePairListConverterTests
     }
 
     /// <summary>
-    /// Verifies that ReadJson works with integer keys.
+    /// Verifies that Read works with integer keys.
     /// </summary>
     [TestMethod]
-    public void ReadJson_WithIntegerKeys_ShouldDeserializeCorrectly()
+    public void Read_WithIntegerKeys_ShouldDeserializeCorrectly()
     {
         // Arrange
         string json = @"{""data"":{""1"":""First"",""2"":""Second""}}";
 
         // Act
-        var result = JsonConvert.DeserializeObject<TestObjectWithIntKey>(json);
+        var result = JsonSerializer.Deserialize<TestObjectWithIntKey>(json, RoadbedJson.Options);
 
         // Assert
         Assert.IsNotNull(result);
@@ -134,16 +129,16 @@ public class CommonKeyValuePairListConverterTests
     }
 
     /// <summary>
-    /// Verifies that ReadJson works with integer values.
+    /// Verifies that Read works with integer values.
     /// </summary>
     [TestMethod]
-    public void ReadJson_WithIntegerValues_ShouldDeserializeCorrectly()
+    public void Read_WithIntegerValues_ShouldDeserializeCorrectly()
     {
         // Arrange
         string json = @"{""data"":{""Age"":30,""Count"":100}}";
 
         // Act
-        var result = JsonConvert.DeserializeObject<TestObjectWithIntValue>(json);
+        var result = JsonSerializer.Deserialize<TestObjectWithIntValue>(json, RoadbedJson.Options);
 
         // Assert
         Assert.IsNotNull(result);
@@ -156,16 +151,16 @@ public class CommonKeyValuePairListConverterTests
     }
 
     /// <summary>
-    /// Verifies that ReadJson handles null data correctly.
+    /// Verifies that Read handles null data correctly.
     /// </summary>
     [TestMethod]
-    public void ReadJson_WithNullData_ShouldReturnNull()
+    public void Read_WithNullData_ShouldReturnNull()
     {
         // Arrange
         string json = @"{""data"":null}";
 
         // Act
-        var result = JsonConvert.DeserializeObject<TestObject>(json);
+        var result = JsonSerializer.Deserialize<TestObject>(json, RoadbedJson.Options);
 
         // Assert
         Assert.IsNotNull(result);
@@ -173,16 +168,16 @@ public class CommonKeyValuePairListConverterTests
     }
 
     /// <summary>
-    /// Verifies that ReadJson handles null values correctly.
+    /// Verifies that Read handles null values correctly.
     /// </summary>
     [TestMethod]
-    public void ReadJson_WithNullValue_ShouldDeserializeCorrectly()
+    public void Read_WithNullValue_ShouldDeserializeCorrectly()
     {
         // Arrange
         string json = @"{""data"":{""Key1"":""Value1"",""Key2"":null}}";
 
         // Act
-        var result = JsonConvert.DeserializeObject<TestObject>(json);
+        var result = JsonSerializer.Deserialize<TestObject>(json, RoadbedJson.Options);
 
         // Assert
         Assert.IsNotNull(result);
@@ -195,16 +190,16 @@ public class CommonKeyValuePairListConverterTests
     }
 
     /// <summary>
-    /// Verifies that ReadJson handles special characters in keys.
+    /// Verifies that Read handles special characters in keys.
     /// </summary>
     [TestMethod]
-    public void ReadJson_WithSpecialCharactersInKeys_ShouldDeserializeCorrectly()
+    public void Read_WithSpecialCharactersInKeys_ShouldDeserializeCorrectly()
     {
         // Arrange
         string json = @"{""data"":{""Key-With-Dashes"":""Value1"",""Key_With_Underscores"":""Value2""}}";
 
         // Act
-        var result = JsonConvert.DeserializeObject<TestObject>(json);
+        var result = JsonSerializer.Deserialize<TestObject>(json, RoadbedJson.Options);
 
         // Assert
         Assert.IsNotNull(result);
@@ -217,16 +212,16 @@ public class CommonKeyValuePairListConverterTests
     }
 
     /// <summary>
-    /// Verifies that ReadJson handles Unicode characters correctly.
+    /// Verifies that Read handles Unicode characters correctly.
     /// </summary>
     [TestMethod]
-    public void ReadJson_WithUnicodeCharacters_ShouldDeserializeCorrectly()
+    public void Read_WithUnicodeCharacters_ShouldDeserializeCorrectly()
     {
         // Arrange
         string json = @"{""data"":{""名前"":""太郎"",""città"":""Roma""}}";
 
         // Act
-        var result = JsonConvert.DeserializeObject<TestObject>(json);
+        var result = JsonSerializer.Deserialize<TestObject>(json, RoadbedJson.Options);
 
         // Assert
         Assert.IsNotNull(result);
@@ -239,16 +234,16 @@ public class CommonKeyValuePairListConverterTests
     }
 
     /// <summary>
-    /// Verifies that ReadJson correctly converts JSON object to list of pairs.
+    /// Verifies that Read correctly converts JSON object to list of pairs.
     /// </summary>
     [TestMethod]
-    public void ReadJson_WithValidJson_ShouldDeserializeCorrectly()
+    public void Read_WithValidJson_ShouldDeserializeCorrectly()
     {
         // Arrange
         string json = @"{""data"":{""Color"":""Red"",""Year"":""2024""}}";
 
         // Act
-        var result = JsonConvert.DeserializeObject<TestObject>(json);
+        var result = JsonSerializer.Deserialize<TestObject>(json, RoadbedJson.Options);
 
         // Assert
         Assert.IsNotNull(result);
@@ -278,8 +273,8 @@ public class CommonKeyValuePairListConverterTests
         };
 
         // Act
-        string json = JsonConvert.SerializeObject(original);
-        var deserialized = JsonConvert.DeserializeObject<TestObject>(json);
+        string json = JsonSerializer.Serialize(original, RoadbedJson.Options);
+        var deserialized = JsonSerializer.Deserialize<TestObject>(json, RoadbedJson.Options);
 
         // Assert
         Assert.IsNotNull(deserialized);
@@ -310,8 +305,8 @@ public class CommonKeyValuePairListConverterTests
         };
 
         // Act
-        string json = JsonConvert.SerializeObject(original);
-        var deserialized = JsonConvert.DeserializeObject<TestObjectWithIntValue>(json);
+        string json = JsonSerializer.Serialize(original, RoadbedJson.Options);
+        var deserialized = JsonSerializer.Deserialize<TestObjectWithIntValue>(json, RoadbedJson.Options);
 
         // Assert
         Assert.IsNotNull(deserialized);
@@ -342,8 +337,8 @@ public class CommonKeyValuePairListConverterTests
         };
 
         // Act
-        string json = JsonConvert.SerializeObject(original);
-        var deserialized = JsonConvert.DeserializeObject<TestObject>(json);
+        string json = JsonSerializer.Serialize(original, RoadbedJson.Options);
+        var deserialized = JsonSerializer.Deserialize<TestObject>(json, RoadbedJson.Options);
 
         // Assert
         Assert.IsNotNull(deserialized);
@@ -356,10 +351,10 @@ public class CommonKeyValuePairListConverterTests
     }
 
     /// <summary>
-    /// Verifies that WriteJson works with boolean values.
+    /// Verifies that Write works with boolean values.
     /// </summary>
     [TestMethod]
-    public void WriteJson_WithBooleanValues_ShouldSerializeCorrectly()
+    public void Write_WithBooleanValues_ShouldSerializeCorrectly()
     {
         // Arrange
         var obj = new TestObjectWithBoolValue
@@ -372,19 +367,20 @@ public class CommonKeyValuePairListConverterTests
         };
 
         // Act
-        string json = JsonConvert.SerializeObject(obj);
-        dynamic result = JsonConvert.DeserializeObject(json) !;
+        string json = JsonSerializer.Serialize(obj, RoadbedJson.Options);
+        JsonNode? parsed = JsonNode.Parse(json);
+        JsonObject data = parsed!["data"]!.AsObject();
 
         // Assert
-        Assert.IsTrue((bool)result.data.IsActive);
-        Assert.IsFalse((bool)result.data.IsDeleted);
+        Assert.IsTrue(data["IsActive"]!.GetValue<bool>());
+        Assert.IsFalse(data["IsDeleted"]!.GetValue<bool>());
     }
 
     /// <summary>
-    /// Verifies that WriteJson works with decimal values.
+    /// Verifies that Write works with decimal values.
     /// </summary>
     [TestMethod]
-    public void WriteJson_WithDecimalValues_ShouldSerializeCorrectly()
+    public void Write_WithDecimalValues_ShouldSerializeCorrectly()
     {
         // Arrange
         var obj = new TestObjectWithDecimalValue
@@ -397,19 +393,20 @@ public class CommonKeyValuePairListConverterTests
         };
 
         // Act
-        string json = JsonConvert.SerializeObject(obj);
-        dynamic result = JsonConvert.DeserializeObject(json) !;
+        string json = JsonSerializer.Serialize(obj, RoadbedJson.Options);
+        JsonNode? parsed = JsonNode.Parse(json);
+        JsonObject data = parsed!["data"]!.AsObject();
 
         // Assert
-        Assert.AreEqual(19.99m, (decimal)result.data.Price);
-        Assert.AreEqual(1.50m, (decimal)result.data.Tax);
+        Assert.AreEqual(19.99m, data["Price"]!.GetValue<decimal>());
+        Assert.AreEqual(1.50m, data["Tax"]!.GetValue<decimal>());
     }
 
     /// <summary>
-    /// Verifies that WriteJson handles duplicate keys by keeping the last occurrence.
+    /// Verifies that Write handles duplicate keys by keeping the last occurrence.
     /// </summary>
     [TestMethod]
-    public void WriteJson_WithDuplicateKeys_ShouldSerializeAllOccurrences()
+    public void Write_WithDuplicateKeys_ShouldSerializeAllOccurrences()
     {
         // Arrange
         var obj = new TestObject
@@ -422,19 +419,31 @@ public class CommonKeyValuePairListConverterTests
         };
 
         // Act
-        string json = JsonConvert.SerializeObject(obj);
-        dynamic result = JsonConvert.DeserializeObject(json) !;
+        string json = JsonSerializer.Serialize(obj, RoadbedJson.Options);
+
+        // JsonObject rejects duplicate keys at parse time, so deserialize the
+        // inner object into a Dictionary, which applies the canonical
+        // last-wins resolution for duplicate JSON property names.
+        using JsonDocument doc = JsonDocument.Parse(json);
+        string innerJson = doc.RootElement.GetProperty("data").GetRawText();
+        Dictionary<string, string>? data = JsonSerializer.Deserialize<Dictionary<string, string>>(
+            innerJson,
+            RoadbedJson.Options);
 
         // Assert
-        // JSON objects cannot have duplicate keys, so the last value wins
-        Assert.AreEqual("SecondValue", (string)result.data.Key);
+        // The raw JSON must contain both writes, evidencing that the converter
+        // did not deduplicate; JSON parsers MUST resolve dup keys last-wins.
+        Assert.Contains("\"FirstValue\"", json);
+        Assert.Contains("\"SecondValue\"", json);
+        Assert.IsNotNull(data);
+        Assert.AreEqual("SecondValue", data["Key"]);
     }
 
     /// <summary>
-    /// Verifies that WriteJson handles empty list correctly.
+    /// Verifies that Write handles empty list correctly.
     /// </summary>
     [TestMethod]
-    public void WriteJson_WithEmptyList_ShouldSerializeAsEmptyObject()
+    public void Write_WithEmptyList_ShouldSerializeAsEmptyObject()
     {
         // Arrange
         var obj = new TestObject
@@ -443,19 +452,21 @@ public class CommonKeyValuePairListConverterTests
         };
 
         // Act
-        string json = JsonConvert.SerializeObject(obj);
-        dynamic result = JsonConvert.DeserializeObject(json) !;
+        string json = JsonSerializer.Serialize(obj, RoadbedJson.Options);
+        JsonNode? parsed = JsonNode.Parse(json);
+        JsonObject root = parsed!.AsObject();
+        JsonObject data = root["data"]!.AsObject();
 
         // Assert
-        Assert.IsNotNull(result.data);
-        Assert.AreEqual(0, ((Newtonsoft.Json.Linq.JObject)result.data).Properties().Count());
+        Assert.IsNotNull(data);
+        Assert.AreEqual(0, data.Count);
     }
 
     /// <summary>
-    /// Verifies that WriteJson works with Guid keys.
+    /// Verifies that Write works with Guid keys.
     /// </summary>
     [TestMethod]
-    public void WriteJson_WithGuidKeys_ShouldSerializeCorrectly()
+    public void Write_WithGuidKeys_ShouldSerializeCorrectly()
     {
         // Arrange
         var guid1 = Guid.NewGuid();
@@ -470,19 +481,20 @@ public class CommonKeyValuePairListConverterTests
         };
 
         // Act
-        string json = JsonConvert.SerializeObject(obj);
-        dynamic result = JsonConvert.DeserializeObject(json) !;
+        string json = JsonSerializer.Serialize(obj, RoadbedJson.Options);
+        JsonNode? parsed = JsonNode.Parse(json);
+        JsonObject data = parsed!["data"]!.AsObject();
 
         // Assert
-        Assert.AreEqual("Value1", (string)result.data[guid1.ToString()]);
-        Assert.AreEqual("Value2", (string)result.data[guid2.ToString()]);
+        Assert.AreEqual("Value1", data[guid1.ToString()]!.GetValue<string>());
+        Assert.AreEqual("Value2", data[guid2.ToString()]!.GetValue<string>());
     }
 
     /// <summary>
-    /// Verifies that WriteJson works with integer keys.
+    /// Verifies that Write works with integer keys.
     /// </summary>
     [TestMethod]
-    public void WriteJson_WithIntegerKeys_ShouldSerializeCorrectly()
+    public void Write_WithIntegerKeys_ShouldSerializeCorrectly()
     {
         // Arrange
         var obj = new TestObjectWithIntKey
@@ -495,19 +507,20 @@ public class CommonKeyValuePairListConverterTests
         };
 
         // Act
-        string json = JsonConvert.SerializeObject(obj);
-        dynamic result = JsonConvert.DeserializeObject(json) !;
+        string json = JsonSerializer.Serialize(obj, RoadbedJson.Options);
+        JsonNode? parsed = JsonNode.Parse(json);
+        JsonObject data = parsed!["data"]!.AsObject();
 
         // Assert
-        Assert.AreEqual("First", (string)result.data["1"]);
-        Assert.AreEqual("Second", (string)result.data["2"]);
+        Assert.AreEqual("First", data["1"]!.GetValue<string>());
+        Assert.AreEqual("Second", data["2"]!.GetValue<string>());
     }
 
     /// <summary>
-    /// Verifies that WriteJson works with integer values.
+    /// Verifies that Write works with integer values.
     /// </summary>
     [TestMethod]
-    public void WriteJson_WithIntegerValues_ShouldSerializeCorrectly()
+    public void Write_WithIntegerValues_ShouldSerializeCorrectly()
     {
         // Arrange
         var obj = new TestObjectWithIntValue
@@ -520,19 +533,20 @@ public class CommonKeyValuePairListConverterTests
         };
 
         // Act
-        string json = JsonConvert.SerializeObject(obj);
-        dynamic result = JsonConvert.DeserializeObject(json) !;
+        string json = JsonSerializer.Serialize(obj, RoadbedJson.Options);
+        JsonNode? parsed = JsonNode.Parse(json);
+        JsonObject data = parsed!["data"]!.AsObject();
 
         // Assert
-        Assert.AreEqual(30, (int)result.data.Age);
-        Assert.AreEqual(100, (int)result.data.Count);
+        Assert.AreEqual(30, data["Age"]!.GetValue<int>());
+        Assert.AreEqual(100, data["Count"]!.GetValue<int>());
     }
 
     /// <summary>
-    /// Verifies that WriteJson handles keys with ToString returning empty string.
+    /// Verifies that Write handles keys with ToString returning empty string.
     /// </summary>
     [TestMethod]
-    public void WriteJson_WithKeyToStringReturningEmpty_ShouldSerializeWithEmptyKey()
+    public void Write_WithKeyToStringReturningEmpty_ShouldSerializeWithEmptyKey()
     {
         // Arrange
         var obj = new TestObjectWithCustomKey
@@ -544,18 +558,19 @@ public class CommonKeyValuePairListConverterTests
         };
 
         // Act
-        string json = JsonConvert.SerializeObject(obj);
-        dynamic result = JsonConvert.DeserializeObject(json) !;
+        string json = JsonSerializer.Serialize(obj, RoadbedJson.Options);
+        JsonNode? parsed = JsonNode.Parse(json);
+        JsonObject data = parsed!["data"]!.AsObject();
 
         // Assert
-        Assert.AreEqual("Value1", (string)result.data[string.Empty]);
+        Assert.AreEqual("Value1", data[string.Empty]!.GetValue<string>());
     }
 
     /// <summary>
-    /// Verifies that WriteJson handles keys with ToString returning null.
+    /// Verifies that Write handles keys with ToString returning null.
     /// </summary>
     [TestMethod]
-    public void WriteJson_WithKeyToStringReturningNull_ShouldSerializeWithEmptyKey()
+    public void Write_WithKeyToStringReturningNull_ShouldSerializeWithEmptyKey()
     {
         // Arrange
         var obj = new TestObjectWithCustomKeyNull
@@ -567,18 +582,19 @@ public class CommonKeyValuePairListConverterTests
         };
 
         // Act
-        string json = JsonConvert.SerializeObject(obj);
-        dynamic result = JsonConvert.DeserializeObject(json) !;
+        string json = JsonSerializer.Serialize(obj, RoadbedJson.Options);
+        JsonNode? parsed = JsonNode.Parse(json);
+        JsonObject data = parsed!["data"]!.AsObject();
 
         // Assert
-        Assert.AreEqual("Value1", (string)result.data[string.Empty]);
+        Assert.AreEqual("Value1", data[string.Empty]!.GetValue<string>());
     }
 
     /// <summary>
-    /// Verifies that WriteJson skips pairs with null keys.
+    /// Verifies that Write skips pairs with null keys.
     /// </summary>
     [TestMethod]
-    public void WriteJson_WithNullKey_ShouldSkipPair()
+    public void Write_WithNullKey_ShouldSkipPair()
     {
         // Arrange
         var obj = new TestObject
@@ -591,19 +607,20 @@ public class CommonKeyValuePairListConverterTests
         };
 
         // Act
-        string json = JsonConvert.SerializeObject(obj);
-        dynamic result = JsonConvert.DeserializeObject(json) !;
+        string json = JsonSerializer.Serialize(obj, RoadbedJson.Options);
+        JsonNode? parsed = JsonNode.Parse(json);
+        JsonObject data = parsed!["data"]!.AsObject();
 
         // Assert
-        Assert.AreEqual("ValidValue", (string)result.data.ValidKey);
-        Assert.AreEqual(1, ((Newtonsoft.Json.Linq.JObject)result.data).Properties().Count());
+        Assert.AreEqual("ValidValue", data["ValidKey"]!.GetValue<string>());
+        Assert.AreEqual(1, data.Count);
     }
 
     /// <summary>
-    /// Verifies that WriteJson handles null list correctly.
+    /// Verifies that Write handles null list correctly.
     /// </summary>
     [TestMethod]
-    public void WriteJson_WithNullList_ShouldSerializeAsNull()
+    public void Write_WithNullList_ShouldOmitProperty()
     {
         // Arrange
         var obj = new TestObject
@@ -611,18 +628,24 @@ public class CommonKeyValuePairListConverterTests
             Data = null,
         };
 
-        // Act
-        string json = JsonConvert.SerializeObject(obj);
+        // Act — the shared options use DefaultIgnoreCondition.WhenWritingNull,
+        // so a null Data property is omitted from the output entirely (mirroring
+        // Newtonsoft's NullValueHandling.Ignore).
+        string json = JsonSerializer.Serialize(obj, RoadbedJson.Options);
+        JsonNode? parsed = JsonNode.Parse(json);
+        JsonObject root = parsed!.AsObject();
 
         // Assert
-        Assert.Contains("\"data\":null", json);
+        Assert.IsFalse(
+            root.ContainsKey("data"),
+            "Null Data should be omitted under WhenWritingNull (Newtonsoft NullValueHandling.Ignore parity).");
     }
 
     /// <summary>
-    /// Verifies that WriteJson handles pairs with null values correctly.
+    /// Verifies that Write handles pairs with null values correctly.
     /// </summary>
     [TestMethod]
-    public void WriteJson_WithNullValue_ShouldSerializeNullValue()
+    public void Write_WithNullValue_ShouldSerializeNullValue()
     {
         // Arrange
         var obj = new TestObject
@@ -634,20 +657,23 @@ public class CommonKeyValuePairListConverterTests
             },
         };
 
-        // Act
-        string json = JsonConvert.SerializeObject(obj);
-        dynamic result = JsonConvert.DeserializeObject(json) !;
+        // Act — the converter writes pair values directly through the property
+        // name path, bypassing DefaultIgnoreCondition. A null pair value still
+        // appears in output as a literal null.
+        string json = JsonSerializer.Serialize(obj, RoadbedJson.Options);
+        JsonNode? parsed = JsonNode.Parse(json);
+        JsonObject data = parsed!["data"]!.AsObject();
 
         // Assert
-        Assert.AreEqual("Value1", (string)result.data.Key1);
-        Assert.IsNull((string)result.data.Key2);
+        Assert.AreEqual("Value1", data["Key1"]!.GetValue<string>());
+        Assert.IsNull(data["Key2"]);
     }
 
     /// <summary>
-    /// Verifies that WriteJson produces the correct JSON structure with string key-value pairs.
+    /// Verifies that Write produces the correct JSON structure with string key-value pairs.
     /// </summary>
     [TestMethod]
-    public void WriteJson_WithStringPairs_ShouldSerializeCorrectly()
+    public void Write_WithStringPairs_ShouldSerializeCorrectly()
     {
         // Arrange
         var obj = new TestObject
@@ -660,24 +686,20 @@ public class CommonKeyValuePairListConverterTests
         };
 
         // Act
-        string json = JsonConvert.SerializeObject(obj);
-        dynamic result = JsonConvert.DeserializeObject(json) !;
+        string json = JsonSerializer.Serialize(obj, RoadbedJson.Options);
+        JsonNode? parsed = JsonNode.Parse(json);
+        JsonObject data = parsed!["data"]!.AsObject();
 
         // Assert
-        Assert.IsNotNull(result);
-        Assert.AreEqual("Red", (string)result.data.Color);
-        Assert.AreEqual("2024", (string)result.data.Year);
+        Assert.AreEqual("Red", data["Color"]!.GetValue<string>());
+        Assert.AreEqual("2024", data["Year"]!.GetValue<string>());
     }
 
-    #endregion Public Methods
-
-    #region Private Classes
-
     /// <summary>
-    /// Verifies that WriteJson correctly serializes when pair Value property is explicitly null.
+    /// Verifies that Write correctly serializes when pair Value property is explicitly null.
     /// </summary>
     [TestMethod]
-    public void WriteJson_WithPairValueNull_ShouldSerializeNullCorrectly()
+    public void Write_WithPairValueNull_ShouldSerializeNullCorrectly()
     {
         // Arrange
         var obj = new TestObject
@@ -692,8 +714,8 @@ public class CommonKeyValuePairListConverterTests
         };
 
         // Act
-        string json = JsonConvert.SerializeObject(obj);
-        var deserialized = JsonConvert.DeserializeObject<TestObject>(json);
+        string json = JsonSerializer.Serialize(obj, RoadbedJson.Options);
+        var deserialized = JsonSerializer.Deserialize<TestObject>(json, RoadbedJson.Options);
 
         // Assert
         Assert.IsNotNull(deserialized);
@@ -709,6 +731,10 @@ public class CommonKeyValuePairListConverterTests
         // Verify the JSON contains the null value
         Assert.Contains("\"Key2\":null", json);
     }
+
+    #endregion Public Methods
+
+    #region Private Classes
 
     /// <summary>
     /// Custom key class that returns empty string from ToString.
@@ -752,7 +778,7 @@ public class CommonKeyValuePairListConverterTests
         /// <summary>
         /// Gets or sets the data property with string key and string value.
         /// </summary>
-        [JsonProperty("data")]
+        [JsonPropertyName("data")]
         [JsonConverter(typeof(CommonKeyValuePairListConverter<string, string>))]
         public IList<CommonKeyValuePair<string, string>>? Data { get; set; }
 
@@ -769,7 +795,7 @@ public class CommonKeyValuePairListConverterTests
         /// <summary>
         /// Gets or sets the data property with string key and boolean value.
         /// </summary>
-        [JsonProperty("data")]
+        [JsonPropertyName("data")]
         [JsonConverter(typeof(CommonKeyValuePairListConverter<string, bool>))]
         public IList<CommonKeyValuePair<string, bool>>? Data { get; set; }
 
@@ -786,7 +812,7 @@ public class CommonKeyValuePairListConverterTests
         /// <summary>
         /// Gets or sets the data property with custom key and string value.
         /// </summary>
-        [JsonProperty("data")]
+        [JsonPropertyName("data")]
         [JsonConverter(typeof(CommonKeyValuePairListConverter<CustomKeyWithEmptyToString, string>))]
         public IList<CommonKeyValuePair<CustomKeyWithEmptyToString, string>>? Data { get; set; }
 
@@ -803,7 +829,7 @@ public class CommonKeyValuePairListConverterTests
         /// <summary>
         /// Gets or sets the data property with custom key and string value.
         /// </summary>
-        [JsonProperty("data")]
+        [JsonPropertyName("data")]
         [JsonConverter(typeof(CommonKeyValuePairListConverter<CustomKeyWithNullToString, string>))]
         public IList<CommonKeyValuePair<CustomKeyWithNullToString, string>>? Data { get; set; }
 
@@ -820,7 +846,7 @@ public class CommonKeyValuePairListConverterTests
         /// <summary>
         /// Gets or sets the data property with string key and decimal value.
         /// </summary>
-        [JsonProperty("data")]
+        [JsonPropertyName("data")]
         [JsonConverter(typeof(CommonKeyValuePairListConverter<string, decimal>))]
         public IList<CommonKeyValuePair<string, decimal>>? Data { get; set; }
 
@@ -837,7 +863,7 @@ public class CommonKeyValuePairListConverterTests
         /// <summary>
         /// Gets or sets the data property with Guid key and string value.
         /// </summary>
-        [JsonProperty("data")]
+        [JsonPropertyName("data")]
         [JsonConverter(typeof(CommonKeyValuePairListConverter<Guid, string>))]
         public IList<CommonKeyValuePair<Guid, string>>? Data { get; set; }
 
@@ -854,7 +880,7 @@ public class CommonKeyValuePairListConverterTests
         /// <summary>
         /// Gets or sets the data property with integer key and string value.
         /// </summary>
-        [JsonProperty("data")]
+        [JsonPropertyName("data")]
         [JsonConverter(typeof(CommonKeyValuePairListConverter<int, string>))]
         public IList<CommonKeyValuePair<int, string>>? Data { get; set; }
 
@@ -871,11 +897,12 @@ public class CommonKeyValuePairListConverterTests
         /// <summary>
         /// Gets or sets the data property with string key and integer value.
         /// </summary>
-        [JsonProperty("data")]
+        [JsonPropertyName("data")]
         [JsonConverter(typeof(CommonKeyValuePairListConverter<string, int>))]
         public IList<CommonKeyValuePair<string, int>>? Data { get; set; }
 
         #endregion Public Properties
     }
+
     #endregion Private Classes
 }

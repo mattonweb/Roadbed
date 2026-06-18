@@ -65,6 +65,27 @@ var request = new NetHttpRequest
 
 **Automatically retries:** 503 Service Unavailable, 408/504 Timeouts, Network errors
 
+### Typed JSON Responses (BREAKING CHANGE)
+
+`MakeHttpRequestAsync<T>` now binds the response body with System.Text.Json
+using the shared `RoadbedJson.Options`. DTOs that map JSON to CLR properties
+must use **`[System.Text.Json.Serialization.JsonPropertyName]`** —
+Newtonsoft's `[JsonProperty]` is silently ignored and will produce a DTO
+with default/null values instead of a compile error.
+
+```csharp
+using System.Text.Json.Serialization;
+
+public sealed class FooDto
+{
+    [JsonPropertyName("id")]
+    public int Id { get; set; }
+
+    [JsonPropertyName("name")]
+    public string? Name { get; set; }
+}
+```
+
 ### Authentication
 ```csharp
 // Bearer token
@@ -93,8 +114,11 @@ HttpHeaders = new List<NetHttpHeader>
 
 ### POST with JSON
 ```csharp
+using System.Text.Json;
+using Roadbed;
+
 var payload = new { Name = "Test", Value = 123 };
-string json = JsonConvert.SerializeObject(payload);
+string json = JsonSerializer.Serialize(payload, RoadbedJson.Options);
 
 var request = new NetHttpRequest
 {
@@ -131,9 +155,9 @@ var request = new NetHttpRequest
 
 ## Complete Example
 ```csharp
+using System.Text.Json;
 using Roadbed.Net;
 using Roadbed;
-using Newtonsoft.Json;
 
 public class FooApiRepository : BaseClassWithLogging<FooApiRepository>
 {
@@ -182,7 +206,7 @@ public class FooApiRepository : BaseClassWithLogging<FooApiRepository>
             return null;
         }
 
-        FooDto? result = JsonConvert.DeserializeObject<FooDto>(response.Data);
+        FooDto? result = JsonSerializer.Deserialize<FooDto>(response.Data, RoadbedJson.Options);
 
         if (result == null)
         {
@@ -197,7 +221,7 @@ public class FooApiRepository : BaseClassWithLogging<FooApiRepository>
     public async Task<int?> CreateAsync(FooDto dto, CancellationToken cancellationToken = default)
     {
         string endpoint = $"{_baseUrl}/foo";
-        string json = JsonConvert.SerializeObject(dto);
+        string json = JsonSerializer.Serialize(dto, RoadbedJson.Options);
 
         var request = new NetHttpRequest
         {
@@ -220,7 +244,7 @@ public class FooApiRepository : BaseClassWithLogging<FooApiRepository>
             return null;
         }
 
-        FooDto? result = JsonConvert.DeserializeObject<FooDto>(response.Data);
+        FooDto? result = JsonSerializer.Deserialize<FooDto>(response.Data, RoadbedJson.Options);
         return result?.Id;
     }
 }
@@ -230,7 +254,8 @@ public class FooApiRepository : BaseClassWithLogging<FooApiRepository>
 
 - .NET 10.0+
 - Microsoft.Extensions.Http (IHttpClientFactory)
-- Roadbed (core utilities and logging)
+- Roadbed (core utilities, logging, and shared `RoadbedJson.Options`)
+- System.Text.Json (built into the runtime)
 
 ## Related Packages
 

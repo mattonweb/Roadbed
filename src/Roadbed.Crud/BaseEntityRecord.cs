@@ -1,7 +1,7 @@
 ﻿namespace Roadbed.Crud;
 
 using System.ComponentModel.DataAnnotations.Schema;
-using Newtonsoft.Json;
+using System.Text.Json.Serialization;
 
 /// <summary>
 /// Base Entity implementation as a Record.
@@ -29,7 +29,7 @@ public abstract record BaseEntityRecord<TId>
 
     /// <inheritdoc />
     [Column("id")]
-    [JsonProperty("id")]
+    [JsonPropertyName("id")]
     public virtual TId? Id
     {
         get;

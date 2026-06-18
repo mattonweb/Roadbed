@@ -1,6 +1,6 @@
 namespace Roadbed.Test.Integration;
 
-using Newtonsoft.Json;
+using System.Text.Json;
 
 /// <summary>
 /// Contains unit tests for verifying the behavior of the NetService class.
@@ -12,14 +12,14 @@ public class CommonKeyValuePairListConverterTests
     #region Public Methods
 
     /// <summary>
-    /// Unit test to verify Newtonsoft deserialization.
+    /// Unit test to verify STJ deserialization.
     /// </summary>
     [TestMethod]
     public void CommonKeyValuePairListConverter_Deserialize_StaticExpectedJson()
     {
         string json = @"{""id"":""ff8081819782e69e019b48833dcd5c23"",""name"":""Test Object"",""data"":{""Color"":""Red"",""Year"":""2024""}}";
 
-        IntegrationObjectRow? obj = JsonConvert.DeserializeObject<IntegrationObjectRow>(json);
+        IntegrationObjectRow? obj = JsonSerializer.Deserialize<IntegrationObjectRow>(json, RoadbedJson.Options);
 
         // Access the data
         if (obj is not null)

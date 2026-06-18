@@ -5,7 +5,7 @@
 namespace Roadbed.Common;
 
 using System.Collections.Generic;
-using Newtonsoft.Json;
+using System.Text.Json.Serialization;
 
 /// <summary>
 /// Non-unique Key/Value Pair.
@@ -42,13 +42,13 @@ public sealed class CommonKeyValuePair<TKey, TValue>
     /// <summary>
     /// Gets or sets the attribute key.
     /// </summary>
-    [JsonProperty("key", NullValueHandling = NullValueHandling.Ignore)]
+    [JsonPropertyName("key")]
     public TKey? Key { get; set; }
 
     /// <summary>
     /// Gets or sets the attribute value.
     /// </summary>
-    [JsonProperty("value", NullValueHandling = NullValueHandling.Ignore)]
+    [JsonPropertyName("value")]
     public TValue? Value { get; set; }
 
     #endregion Public Properties

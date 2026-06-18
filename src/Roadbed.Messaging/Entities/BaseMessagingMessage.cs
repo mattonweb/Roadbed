@@ -4,7 +4,7 @@
 
 namespace Roadbed.Messaging;
 
-using Newtonsoft.Json;
+using System.Text.Json.Serialization;
 
 /// <summary>
 /// Base Message.
@@ -19,7 +19,7 @@ public abstract class BaseMessagingMessage<T>
     /// values suitable for deserialization.
     /// </summary>
     /// <remarks>
-    /// Required so that <see cref="Newtonsoft.Json.JsonConvert.DeserializeObject{T}(string)"/> can
+    /// Required so that <see cref="System.Text.Json.JsonSerializer.Deserialize{T}(string, System.Text.Json.JsonSerializerOptions)"/> can
     /// instantiate concrete subclasses without ambiguity over which parameterized constructor to use.
     /// <see cref="Publisher"/> is initialized to <see langword="null"/> via the null-forgiving operator;
     /// the deserializer is expected to populate it from the JSON immediately after construction.
@@ -108,7 +108,15 @@ public abstract class BaseMessagingMessage<T>
     /// <summary>
     /// Gets the time the message was created.
     /// </summary>
-    [JsonProperty("message_create_on")]
+    /// <remarks>
+    /// <see cref="JsonIncludeAttribute"/> is required so System.Text.Json
+    /// will use the <c>internal</c> setter during deserialization. Without
+    /// it, STJ skips non-public accessors and the parameterless
+    /// constructor's freshly generated value would silently survive the
+    /// round-trip.
+    /// </remarks>
+    [JsonPropertyName("message_create_on")]
+    [JsonInclude]
     public DateTimeOffset? CreatedOn
     {
         get;
@@ -118,7 +126,7 @@ public abstract class BaseMessagingMessage<T>
     /// <summary>
     /// Gets or sets the object in the message.
     /// </summary>
-    [JsonProperty("data", NullValueHandling = NullValueHandling.Ignore)]
+    [JsonPropertyName("data")]
     public T? Data
     {
         get;
@@ -128,7 +136,15 @@ public abstract class BaseMessagingMessage<T>
     /// <summary>
     /// Gets the identifier for the message.
     /// </summary>
-    [JsonProperty("message_identifier")]
+    /// <remarks>
+    /// <see cref="JsonIncludeAttribute"/> is required so System.Text.Json
+    /// will use the <c>internal</c> setter during deserialization. Without
+    /// it, STJ skips non-public accessors and the parameterless
+    /// constructor's freshly generated ULID would silently survive the
+    /// round-trip.
+    /// </remarks>
+    [JsonPropertyName("message_identifier")]
+    [JsonInclude]
     public string? Identifier
     {
         get;
@@ -138,7 +154,7 @@ public abstract class BaseMessagingMessage<T>
     /// <summary>
     /// Gets or sets the type of message.
     /// </summary>
-    [JsonProperty("message_type", NullValueHandling = NullValueHandling.Ignore)]
+    [JsonPropertyName("message_type")]
     public string? MessageTypeCodename
     {
         get;
@@ -148,7 +164,7 @@ public abstract class BaseMessagingMessage<T>
     /// <summary>
     /// Gets or sets the publisher for the message.
     /// </summary>
-    [JsonProperty("publisher", NullValueHandling = NullValueHandling.Ignore)]
+    [JsonPropertyName("publisher")]
     public MessagingPublisher Publisher
     {
         get;
@@ -158,7 +174,7 @@ public abstract class BaseMessagingMessage<T>
     /// <summary>
     /// Gets or sets the time the message was created according to the source.
     /// </summary>
-    [JsonProperty("source_create_on", NullValueHandling = NullValueHandling.Ignore)]
+    [JsonPropertyName("source_create_on")]
     public DateTimeOffset? SourceCreatedOn
     {
         get;

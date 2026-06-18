@@ -41,7 +41,7 @@ These rules apply to **every** Roadbed library. Always follow them — the refer
 - **MUST** validate reference parameters with `ArgumentNullException.ThrowIfNull(param)`.
 - **MUST** validate string parameters with `ArgumentException.ThrowIfNullOrWhiteSpace(param)`.
 - **MUST** put `CancellationToken cancellationToken = default` as the **last** parameter on any async method.
-- **MUST** use `Newtonsoft.Json` (`[JsonProperty(...)]`) for serialization, not `System.Text.Json` (`[JsonPropertyName]`). Roadbed's serialization stack assumes Newtonsoft.
+- **MUST** use `System.Text.Json` (`[JsonPropertyName(...)]`) for serialization, not `Newtonsoft.Json` (`[JsonProperty]`). Roadbed's serialization stack uses STJ, and Newtonsoft attributes are silently ignored. Always pass the shared `Roadbed.RoadbedJson.Options` to `JsonSerializer.Serialize` / `Deserialize` — constructing per-call options is the #1 STJ perf footgun.
 - **MUST** use the level-checked logging methods inherited from `BaseClassWithLogging` (`this.LogDebug`, `this.LogInformation`, `this.LogWarning`, `this.LogError`, `this.LogCritical`) — never call `this.Logger.LogDebug` or `this._logger.LogDebug` directly.
 - **MUST** structure files with `#region` blocks: `Private Fields`, `Public Constructors` (or `Protected Constructors`), `Public Properties`, `Public Methods`, `Private Methods`, etc. Match the style of files already in the project.
 - **MUST** write XML doc comments (`/// <summary>`, `/// <param>`, `/// <returns>`, `/// <exception>`) on every public and protected member. The Roadbed projects build with `<GenerateDocumentationFile>true</GenerateDocumentationFile>` and `<TreatWarningsAsErrors>True</TreatWarningsAsErrors>` — missing XML docs fail the build.
@@ -52,12 +52,13 @@ These rules apply to **every** Roadbed library. Always follow them — the refer
 
 - **MUST NOT** use `_field = value` without `this.` — even when the C# compiler accepts it.
 - **MUST NOT** use the old `?? throw new ArgumentNullException(nameof(param))` pattern. Use the throw-helpers above.
-- **MUST NOT** use `System.Text.Json` for any DTO that crosses a Roadbed boundary (HTTP response, message envelope, persisted JSON).
+- **MUST NOT** use `Newtonsoft.Json` (`[JsonProperty]`, `JsonConvert.*`) for any DTO that crosses a Roadbed boundary (HTTP response, message envelope, persisted JSON). Roadbed dropped Newtonsoft — `[JsonProperty]` is silently ignored and produces a DTO with default/null values, not a compile error.
+- **MUST NOT** allocate a `JsonSerializerOptions` per call. Reuse `Roadbed.RoadbedJson.Options` (or, when a host needs different settings, build one static options instance and reuse it). STJ keys its reflection-derived metadata cache by options instance.
 - **MUST NOT** use `$"..."` interpolation inside a log message — it allocates the string even when the level is disabled. Use structured templates: `this.LogDebug("Processing {Id}", id)`.
 - **MUST NOT** register services manually in `Program.cs` for code that has its own installer.
 - **MUST NOT** implement marker-style framework interfaces (`ISchedulingJob`, `IDataConnectionFactory`, etc.) directly — always inherit the matching `Base*` class so the framework's lifecycle wiring works.
 - **MUST NOT** invent your own retry loops around `MakeHttpRequestAsync`, `*Executor.*Async`, or other Roadbed methods that already retry internally. Configure their retry parameters instead.
-- **MUST NOT** wrap Roadbed methods that already catch and translate exceptions (e.g., `NetHttpClient` translates `JsonException` to `Failure()`) in additional `try/catch` blocks. Check the documented success flag instead.
+- **MUST NOT** wrap Roadbed methods that already catch and translate exceptions (e.g., `NetHttpClient` translates `System.Text.Json.JsonException` to `Failure()`) in additional `try/catch` blocks. Check the documented success flag instead.
 
 ### Naming conventions for the file you generate
 

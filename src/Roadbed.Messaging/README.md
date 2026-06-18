@@ -40,6 +40,7 @@ public class OrderCreatedPayload
 
 ### 2. Create and Send Request Message
 ```csharp
+using System.Text.Json;
 using Roadbed.Messaging;
 using Roadbed.Common;
 
@@ -61,15 +62,19 @@ var message = new MessagingMessageRequest<OrderCreatedPayload>(
     }
 };
 
-// Serialize and send
-string json = JsonConvert.SerializeObject(message);
+// Serialize and send — always pass the shared RoadbedJson.Options so
+// reads/writes share one cached options instance (per-call options are
+// the #1 System.Text.Json perf footgun).
+string json = JsonSerializer.Serialize(message, RoadbedJson.Options);
 await snsClient.PublishAsync(topicArn, json);
 ```
 
 ### 3. Receive and Process Message
 ```csharp
 // Deserialize received message
-var message = JsonConvert.DeserializeObject<MessagingMessageRequest<OrderCreatedPayload>>(json);
+var message = JsonSerializer.Deserialize<MessagingMessageRequest<OrderCreatedPayload>>(
+    json,
+    RoadbedJson.Options);
 
 Console.WriteLine($"Message ID: {message.Identifier}");
 Console.WriteLine($"Type: {message.MessageTypeCodename}");
@@ -91,7 +96,7 @@ var response = new MessagingMessageResponse<OrderFulfilledPayload>(
     OriginalRequestIdentifier = message.Identifier  // Link to original request
 };
 
-string responseJson = JsonConvert.SerializeObject(response);
+string responseJson = JsonSerializer.Serialize(response, RoadbedJson.Options);
 await sqsClient.SendMessageAsync(queueUrl, responseJson);
 ```
 
@@ -173,7 +178,7 @@ public class OrderService
         };
         
         // Publish to SNS
-        string json = JsonConvert.SerializeObject(message);
+        string json = JsonSerializer.Serialize(message, RoadbedJson.Options);
         await _sns.PublishAsync(_topicArn, json);
     }
 }
@@ -189,8 +194,9 @@ public class FulfillmentService
     public async Task ProcessOrderMessageAsync(string messageBody)
     {
         // Deserialize request
-        var request = JsonConvert.DeserializeObject<MessagingMessageRequest<OrderCreatedPayload>>(
-            messageBody);
+        var request = JsonSerializer.Deserialize<MessagingMessageRequest<OrderCreatedPayload>>(
+            messageBody,
+            RoadbedJson.Options);
         
         if (request?.Data == null) return;
         
@@ -217,7 +223,7 @@ public class FulfillmentService
         };
         
         // Send response
-        string responseJson = JsonConvert.SerializeObject(response);
+        string responseJson = JsonSerializer.Serialize(response, RoadbedJson.Options);
         await _sqs.SendMessageAsync(_responseQueueUrl, responseJson);
     }
 }
@@ -301,7 +307,7 @@ Use dot-notation for message type categorization:
 // Publishing to SNS
 public async Task PublishEventAsync<T>(MessagingMessageRequest<T> message)
 {
-    var json = JsonConvert.SerializeObject(message);
+    var json = JsonSerializer.Serialize(message, RoadbedJson.Options);
     
     var request = new PublishRequest
     {
@@ -328,8 +334,9 @@ public async Task<MessagingMessageRequest<T>?> ReceiveMessageAsync<T>()
     if (response.Messages.Count == 0) return null;
     
     var sqsMessage = response.Messages[0];
-    var message = JsonConvert.DeserializeObject<MessagingMessageRequest<T>>(
-        sqsMessage.Body);
+    var message = JsonSerializer.Deserialize<MessagingMessageRequest<T>>(
+        sqsMessage.Body,
+        RoadbedJson.Options);
     
     // Delete message after successful processing
     await _sqsClient.DeleteMessageAsync(_queueUrl, sqsMessage.ReceiptHandle);
@@ -341,9 +348,9 @@ public async Task<MessagingMessageRequest<T>?> ReceiveMessageAsync<T>()
 ## Requirements
 
 - .NET 10.0+
-- Newtonsoft.Json
+- System.Text.Json (built into the runtime; serialization uses the shared `RoadbedJson.Options` from Roadbed)
 - Ulid (for identifier generation)
-- Roadbed (for CommonBusinessKey and CommonKeyValuePair)
+- Roadbed (for CommonBusinessKey, CommonKeyValuePair, and the shared JSON options)
 
 ## Related Packages
 

@@ -9,10 +9,10 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Sockets;
 using System.Security.Cryptography;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
 
 /// <summary>
 /// Service for managing HttpClient operations using IHttpClientFactory.
@@ -102,7 +102,7 @@ public class NetHttpClient
                 {
                     try
                     {
-                        T? deserialized = JsonConvert.DeserializeObject<T>(responseBody);
+                        T? deserialized = JsonSerializer.Deserialize<T>(responseBody, RoadbedJson.Options);
 
                         response = NetHttpResponse<T>.Success(
                             (int)message.StatusCode,

@@ -3,10 +3,10 @@ namespace Roadbed.Logging;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
 
 /// <summary>
 /// Default implementation of <see cref="ILoggingActivityService"/>.
@@ -383,12 +383,14 @@ public sealed class LoggingActivityService
     /// <returns>A compact JSON object of the form <c>{"reaped":true,"reason":...,"stale_after_seconds":N}</c>.</returns>
     private static string BuildReapMetricsJson(string? reason, TimeSpan staleAfter)
     {
-        return JsonConvert.SerializeObject(new
-        {
-            reaped = true,
-            reason,
-            stale_after_seconds = (long)staleAfter.TotalSeconds,
-        });
+        return JsonSerializer.Serialize(
+            new
+            {
+                reaped = true,
+                reason,
+                stale_after_seconds = (long)staleAfter.TotalSeconds,
+            },
+            RoadbedJson.Options);
     }
 
     /// <summary>

@@ -4,7 +4,7 @@
 
 namespace Roadbed.Messaging;
 
-using Newtonsoft.Json;
+using System.Text.Json.Serialization;
 
 /// <summary>
 /// Entity for Message Notification Response.
@@ -20,7 +20,7 @@ public class MessagingMessageResponse<T>
     /// default values suitable for deserialization.
     /// </summary>
     /// <remarks>
-    /// Required so that <see cref="Newtonsoft.Json.JsonConvert.DeserializeObject{T}(string)"/> can
+    /// Required so that <see cref="System.Text.Json.JsonSerializer.Deserialize{T}(string, System.Text.Json.JsonSerializerOptions)"/> can
     /// instantiate this type without ambiguity over which parameterized constructor to use.
     /// Application code that publishes new messages should use one of the parameterized constructors
     /// instead.
@@ -86,7 +86,7 @@ public class MessagingMessageResponse<T>
     /// <summary>
     /// Gets or sets the original identifier for the request message.
     /// </summary>
-    [JsonProperty("original_request_identifier", NullValueHandling = NullValueHandling.Ignore)]
+    [JsonPropertyName("original_request_identifier")]
     public string? OriginalRequestIdentifier { get; set; }
 
     #endregion Public Properties

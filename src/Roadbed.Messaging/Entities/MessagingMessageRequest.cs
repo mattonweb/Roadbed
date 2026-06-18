@@ -18,7 +18,7 @@ public class MessagingMessageRequest<T>
     /// default values suitable for deserialization.
     /// </summary>
     /// <remarks>
-    /// Required so that <see cref="Newtonsoft.Json.JsonConvert.DeserializeObject{T}(string)"/> can
+    /// Required so that <see cref="System.Text.Json.JsonSerializer.Deserialize{T}(string, System.Text.Json.JsonSerializerOptions)"/> can
     /// instantiate this type without ambiguity over which parameterized constructor to use.
     /// Application code that publishes new messages should use one of the parameterized constructors
     /// instead.

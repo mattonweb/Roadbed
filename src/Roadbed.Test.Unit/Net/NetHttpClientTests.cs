@@ -10,8 +10,10 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Newtonsoft.Json;
+using Roadbed.Common;
 using Roadbed.Net;
 
 /// <summary>
@@ -177,7 +179,7 @@ public class NetHttpClientTests
     {
         // Arrange (Given)
         var expectedDto = new TestJsonDto { Name = "Test", Value = 42 };
-        string jsonBody = JsonConvert.SerializeObject(expectedDto);
+        string jsonBody = JsonSerializer.Serialize(expectedDto, RoadbedJson.Options);
         var handler = new MockHttpMessageHandler();
         handler.EnqueueResponse(HttpStatusCode.OK, jsonBody);
 
@@ -1174,10 +1176,10 @@ public class NetHttpClientTests
     /// </summary>
     private sealed class TestJsonDto
     {
-        [JsonProperty("name")]
+        [JsonPropertyName("name")]
         public string? Name { get; set; }
 
-        [JsonProperty("value")]
+        [JsonPropertyName("value")]
         public int Value { get; set; }
     }
 
