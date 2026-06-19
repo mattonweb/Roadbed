@@ -41,6 +41,7 @@ public class LoggingActivityServiceTests
             activityRepository.Object,
             inputRepository.Object,
             new LoggingOptions { Application = "test-app" },
+            TimeProvider.System,
             NullLogger<LoggingActivityService>.Instance);
 
         // Act (When)
@@ -97,6 +98,7 @@ public class LoggingActivityServiceTests
             activityRepository.Object,
             Mock.Of<ILoggingActivityInputRepository>(),
             new LoggingOptions(),
+            TimeProvider.System,
             NullLogger<LoggingActivityService>.Instance);
 
         Assert.IsNull(Activity.Current, "Precondition: no ambient activity before BeginAsync.");
@@ -132,6 +134,7 @@ public class LoggingActivityServiceTests
             activityRepository.Object,
             Mock.Of<ILoggingActivityInputRepository>(),
             new LoggingOptions(),
+            TimeProvider.System,
             NullLogger<LoggingActivityService>.Instance);
 
         // Act (When)
@@ -164,6 +167,7 @@ public class LoggingActivityServiceTests
             activityRepository.Object,
             Mock.Of<ILoggingActivityInputRepository>(),
             new LoggingOptions(),
+            TimeProvider.System,
             NullLogger<LoggingActivityService>.Instance);
 
         // Act (When)
@@ -193,6 +197,7 @@ public class LoggingActivityServiceTests
             activityRepository.Object,
             Mock.Of<ILoggingActivityInputRepository>(),
             new LoggingOptions(),
+            TimeProvider.System,
             NullLogger<LoggingActivityService>.Instance);
 
         // Act (When)
@@ -230,6 +235,7 @@ public class LoggingActivityServiceTests
             activityRepository.Object,
             Mock.Of<ILoggingActivityInputRepository>(),
             new LoggingOptions(),
+            TimeProvider.System,
             NullLogger<LoggingActivityService>.Instance);
 
         DateTime before = DateTime.UtcNow.AddSeconds(-1);
@@ -263,6 +269,7 @@ public class LoggingActivityServiceTests
             activityRepository.Object,
             Mock.Of<ILoggingActivityInputRepository>(),
             new LoggingOptions(),
+            TimeProvider.System,
             NullLogger<LoggingActivityService>.Instance);
 
         // Act (When)
@@ -285,6 +292,7 @@ public class LoggingActivityServiceTests
             Mock.Of<ILoggingActivityRepository>(),
             Mock.Of<ILoggingActivityInputRepository>(),
             new LoggingOptions(),
+            TimeProvider.System,
             NullLogger<LoggingActivityService>.Instance);
 
         // Act (When) + Assert (Then)
@@ -323,6 +331,7 @@ public class LoggingActivityServiceTests
             activityRepository.Object,
             Mock.Of<ILoggingActivityInputRepository>(),
             new LoggingOptions(),
+            TimeProvider.System,
             NullLogger<LoggingActivityService>.Instance);
 
         // Act (When)
@@ -352,6 +361,7 @@ public class LoggingActivityServiceTests
             Mock.Of<ILoggingActivityRepository>(),
             inputRepository.Object,
             new LoggingOptions(),
+            TimeProvider.System,
             NullLogger<LoggingActivityService>.Instance);
 
         // Act (When)

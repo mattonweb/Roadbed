@@ -8,6 +8,20 @@
   SQLite TEXT / MariaDB DATE round-trip of `DateOnly` properties.
   Consumers must register both via `SqlMapper.AddTypeHandler` (same
   pattern as the existing DateTime handlers).
+- Inject `System.TimeProvider` into the in-process clock paths that
+  stamp framework timestamps and time retry / backoff waits.
+  `LoggingActivityService`, `LoggingActivityRepository`, and
+  `LogWriterHostedService` now stamp `created_on` /
+  `last_modified_on` / flush-interval timing via the injected
+  `TimeProvider`; `NetHttpClient` virtualizes its retry backoff
+  through `Task.Delay(TimeSpan, TimeProvider, CancellationToken)`.
+  Every Roadbed installer registers `TimeProvider.System` as a
+  `TryAddSingleton`, so production behavior is identical and consumer
+  tests can supply a `FakeTimeProvider` to drive every framework
+  timestamp and every backoff wait from one virtual clock. Non-breaking;
+  the parameterless `NetHttpClient` constructor and the
+  `LoggingActivityService` `ServiceLocator` fallback both default to
+  `TimeProvider.System`.
 
 ### Breaking
 

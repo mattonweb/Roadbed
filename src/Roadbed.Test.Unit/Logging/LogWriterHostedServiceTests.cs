@@ -1,5 +1,6 @@
 namespace Roadbed.Test.Unit.Logging;
 
+using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -29,6 +30,7 @@ public class LogWriterHostedServiceTests
             new LoggingChannel(new LoggingOptions()),
             repository.Object,
             new LoggingOptions(),
+            TimeProvider.System,
             NullLogger<LogWriterHostedService>.Instance);
 
         // Act (When)
@@ -57,6 +59,7 @@ public class LogWriterHostedServiceTests
             new LoggingChannel(new LoggingOptions()),
             repository.Object,
             new LoggingOptions(),
+            TimeProvider.System,
             NullLogger<LogWriterHostedService>.Instance);
 
         var batch = new List<LoggingLogEntry>
@@ -94,6 +97,7 @@ public class LogWriterHostedServiceTests
             new LoggingChannel(new LoggingOptions()),
             repository.Object,
             new LoggingOptions(),
+            TimeProvider.System,
             NullLogger<LogWriterHostedService>.Instance);
 
         var batch = new List<LoggingLogEntry>

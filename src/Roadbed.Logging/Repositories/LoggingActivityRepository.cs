@@ -27,6 +27,7 @@ internal sealed class LoggingActivityRepository
 
     private readonly ILoggingDataExecutor _executor;
     private readonly ILoggingDatabaseFactory _factory;
+    private readonly TimeProvider _timeProvider;
     private readonly string _tableRef;
 
     #endregion Private Fields
@@ -39,20 +40,24 @@ internal sealed class LoggingActivityRepository
     /// <param name="executor">Provider-neutral execution port supplied by the active provider satellite.</param>
     /// <param name="factory">Database connection factory pointing at the activity schema.</param>
     /// <param name="options">Host-supplied logging options.</param>
+    /// <param name="timeProvider">Clock source for the <c>last_modified_on</c> stamp written by every UPDATE on this table. Defaults to <see cref="TimeProvider.System"/> in DI so production behavior is unchanged.</param>
     /// <param name="logger">Logger used for retry diagnostics on the data path.</param>
     public LoggingActivityRepository(
         ILoggingDataExecutor executor,
         ILoggingDatabaseFactory factory,
         LoggingOptions options,
+        TimeProvider timeProvider,
         ILogger<LoggingActivityRepository> logger)
         : base(logger)
     {
         ArgumentNullException.ThrowIfNull(executor);
         ArgumentNullException.ThrowIfNull(factory);
         ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(timeProvider);
 
         this._executor = executor;
         this._factory = factory;
+        this._timeProvider = timeProvider;
         this._tableRef = string.IsNullOrWhiteSpace(options.Schema)
             ? "activity"
             : $"{options.Schema}.activity";
@@ -71,9 +76,9 @@ internal sealed class LoggingActivityRepository
         ArgumentException.ThrowIfNullOrWhiteSpace(entity.Id);
 
         // created_on / last_modified_on are stamped explicitly with UTC
-        // values supplied by the caller (DateTime.UtcNow from
-        // LoggingActivityService.BeginAsync) so we never rely on the
-        // session time_zone of the underlying connection. The values
+        // values supplied by the caller (sourced from the service's injected
+        // TimeProvider) so we never rely on the session time_zone of the
+        // underlying connection. The values
         // chosen here are what LoggingActivityScope.CreatedOn returns,
         // so subsequent UPDATE WHEREs can include AND created_on = ? and
         // prune to one MySQL partition.
@@ -216,7 +221,7 @@ internal sealed class LoggingActivityRepository
         parameters.Add("QuartzJobGroup", request.QuartzJobGroup);
         parameters.Add("QuartzTriggerName", request.QuartzTriggerName);
         parameters.Add("QuartzTriggerGroup", request.QuartzTriggerGroup);
-        parameters.Add("LastModifiedOn", DateTime.UtcNow);
+        parameters.Add("LastModifiedOn", this._timeProvider.GetUtcNow().UtcDateTime);
         if (request.CreatedOn.HasValue)
         {
             parameters.Add("CreatedOn", request.CreatedOn.Value);
@@ -254,7 +259,7 @@ internal sealed class LoggingActivityRepository
         var parameters = new DynamicParameters();
         parameters.Add("ActivityId", activityId);
         parameters.Add("HeartbeatOn", heartbeatOn);
-        parameters.Add("LastModifiedOn", DateTime.UtcNow);
+        parameters.Add("LastModifiedOn", this._timeProvider.GetUtcNow().UtcDateTime);
         if (createdOn.HasValue)
         {
             parameters.Add("CreatedOn", createdOn.Value);
@@ -301,7 +306,7 @@ internal sealed class LoggingActivityRepository
         parameters.Add("CompletedOn", completedOn);
         parameters.Add("RecordsImpacted", recordsImpacted);
         parameters.Add("MetricsJson", metricsJson);
-        parameters.Add("LastModifiedOn", DateTime.UtcNow);
+        parameters.Add("LastModifiedOn", this._timeProvider.GetUtcNow().UtcDateTime);
         if (createdOn.HasValue)
         {
             parameters.Add("CreatedOn", createdOn.Value);
@@ -349,7 +354,7 @@ internal sealed class LoggingActivityRepository
         parameters.Add("CompletedOn", completedOn);
         parameters.Add("Error", error);
         parameters.Add("ErrorType", errorType);
-        parameters.Add("LastModifiedOn", DateTime.UtcNow);
+        parameters.Add("LastModifiedOn", this._timeProvider.GetUtcNow().UtcDateTime);
         if (createdOn.HasValue)
         {
             parameters.Add("CreatedOn", createdOn.Value);

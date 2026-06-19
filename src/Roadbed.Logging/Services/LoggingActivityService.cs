@@ -42,6 +42,7 @@ public sealed class LoggingActivityService
     private readonly ILoggingActivityRepository _activityRepository;
     private readonly ILoggingActivityInputRepository _activityInputRepository;
     private readonly LoggingOptions _options;
+    private readonly TimeProvider _timeProvider;
     private readonly string _hostName;
     private readonly int _processId;
 
@@ -53,12 +54,19 @@ public sealed class LoggingActivityService
     /// Initializes a new instance of the <see cref="LoggingActivityService"/> class.
     /// </summary>
     /// <param name="logger">Represents a type used to perform logging.</param>
+    /// <remarks>
+    /// Resolves <see cref="TimeProvider"/> from <see cref="ServiceLocator"/>
+    /// when one has been registered (e.g. a test fake), falling back to
+    /// <see cref="TimeProvider.System"/> so production behavior is identical
+    /// to the pre-injection code path.
+    /// </remarks>
     public LoggingActivityService(
         ILogger<LoggingActivityService> logger)
         : this(
             ServiceLocator.GetService<ILoggingActivityRepository>(),
             ServiceLocator.GetService<ILoggingActivityInputRepository>(),
             ServiceLocator.GetService<LoggingOptions>(),
+            ServiceLocator.TryGetService<TimeProvider>() ?? TimeProvider.System,
             logger)
     {
     }
@@ -73,21 +81,25 @@ public sealed class LoggingActivityService
     /// <param name="activityRepository">Repository for the <c>activity</c> table.</param>
     /// <param name="activityInputRepository">Repository for the <c>activity_input</c> lineage table.</param>
     /// <param name="options">Host-supplied logging options.</param>
+    /// <param name="timeProvider">Clock source for every framework-stamped timestamp this service writes. Defaults to <see cref="TimeProvider.System"/> on the public construction path so production behavior is unchanged; tests can supply a fake to drive all activity timestamps from one virtual clock.</param>
     /// <param name="logger">Represents a type used to perform logging.</param>
     internal LoggingActivityService(
         ILoggingActivityRepository activityRepository,
         ILoggingActivityInputRepository activityInputRepository,
         LoggingOptions options,
+        TimeProvider timeProvider,
         ILogger<LoggingActivityService> logger)
         : base(logger)
     {
         ArgumentNullException.ThrowIfNull(activityRepository);
         ArgumentNullException.ThrowIfNull(activityInputRepository);
         ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(timeProvider);
 
         this._activityRepository = activityRepository;
         this._activityInputRepository = activityInputRepository;
         this._options = options;
+        this._timeProvider = timeProvider;
         this._hostName = Environment.MachineName;
         this._processId = Environment.ProcessId;
     }
@@ -148,7 +160,7 @@ public sealed class LoggingActivityService
         // Stamp created_on explicitly (not server DEFAULT) so we know the
         // exact value at scope time. UPDATE statements include it in their
         // WHERE clause to enable MySQL partition pruning to one partition.
-        DateTime nowUtc = DateTime.UtcNow;
+        DateTime nowUtc = this._timeProvider.GetUtcNow().UtcDateTime;
 
         var entity = new LoggingActivity
         {
@@ -192,7 +204,7 @@ public sealed class LoggingActivityService
         return this._activityRepository.RecordHeartbeatAsync(
             scope.ActivityId,
             scope.CreatedOn,
-            DateTime.UtcNow,
+            this._timeProvider.GetUtcNow().UtcDateTime,
             cancellationToken);
     }
 
@@ -206,7 +218,7 @@ public sealed class LoggingActivityService
         return this._activityRepository.RecordHeartbeatAsync(
             activityId,
             createdOn: null,
-            DateTime.UtcNow,
+            this._timeProvider.GetUtcNow().UtcDateTime,
             cancellationToken);
     }
 
@@ -271,7 +283,7 @@ public sealed class LoggingActivityService
         return this._activityRepository.FailAsync(
             scope.ActivityId,
             scope.CreatedOn,
-            DateTime.UtcNow,
+            this._timeProvider.GetUtcNow().UtcDateTime,
             error.Message,
             error.GetType().FullName ?? error.GetType().Name,
             cancellationToken);
@@ -289,7 +301,7 @@ public sealed class LoggingActivityService
         return this._activityRepository.FailAsync(
             activityId,
             createdOn: null,
-            DateTime.UtcNow,
+            this._timeProvider.GetUtcNow().UtcDateTime,
             error.Message,
             error.GetType().FullName ?? error.GetType().Name,
             cancellationToken);
@@ -323,7 +335,7 @@ public sealed class LoggingActivityService
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(staleAfter, TimeSpan.Zero);
 
-        DateTime nowUtc = DateTime.UtcNow;
+        DateTime nowUtc = this._timeProvider.GetUtcNow().UtcDateTime;
         DateTime staleBefore = nowUtc - staleAfter;
         string? environment = this.ScopedEnvironment();
 
@@ -361,7 +373,7 @@ public sealed class LoggingActivityService
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(staleAfter, TimeSpan.Zero);
 
-        DateTime staleBefore = DateTime.UtcNow - staleAfter;
+        DateTime staleBefore = this._timeProvider.GetUtcNow().UtcDateTime - staleAfter;
 
         return this._activityRepository.FindStaleAsync(
             this._options.Application,
@@ -480,7 +492,7 @@ public sealed class LoggingActivityService
             activityId,
             createdOn,
             status,
-            DateTime.UtcNow,
+            this._timeProvider.GetUtcNow().UtcDateTime,
             recordsImpacted,
             metricsJson,
             cancellationToken);

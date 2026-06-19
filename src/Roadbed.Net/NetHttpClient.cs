@@ -27,12 +27,20 @@ public class NetHttpClient
     /// </summary>
     private readonly IHttpClientFactory _httpClientFactory;
 
+    /// <summary>
+    /// Clock source for retry backoff delays. Defaults to
+    /// <see cref="TimeProvider.System"/> on the public constructor; a test
+    /// can supply a fake clock to virtualize the wait without sleeping.
+    /// </summary>
+    private readonly TimeProvider _timeProvider;
+
     #endregion Private Fields
 
     #region Public Constructors
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="NetHttpClient"/> class.
+    /// Initializes a new instance of the <see cref="NetHttpClient"/> class
+    /// using <see cref="TimeProvider.System"/> as the backoff clock.
     /// </summary>
     /// <param name="httpClientFactory">Factory for creating HttpClient instances.</param>
     /// <param name="logger">Represents a type used to perform logging.</param>
@@ -40,11 +48,29 @@ public class NetHttpClient
     public NetHttpClient(
         IHttpClientFactory httpClientFactory,
         ILogger<NetHttpClient> logger)
+        : this(httpClientFactory, TimeProvider.System, logger)
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="NetHttpClient"/> class
+    /// with an explicit <see cref="TimeProvider"/> driving retry backoff.
+    /// </summary>
+    /// <param name="httpClientFactory">Factory for creating HttpClient instances.</param>
+    /// <param name="timeProvider">Clock source used by <see cref="Task.Delay(TimeSpan, TimeProvider, CancellationToken)"/> in the retry backoff path; a fake clock virtualizes the wait so retry / backoff tests do not sleep in real time.</param>
+    /// <param name="logger">Represents a type used to perform logging.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="httpClientFactory"/> or <paramref name="timeProvider"/> is <c>null</c>.</exception>
+    public NetHttpClient(
+        IHttpClientFactory httpClientFactory,
+        TimeProvider timeProvider,
+        ILogger<NetHttpClient> logger)
         : base(logger)
     {
         ArgumentNullException.ThrowIfNull(httpClientFactory);
+        ArgumentNullException.ThrowIfNull(timeProvider);
 
         this._httpClientFactory = httpClientFactory;
+        this._timeProvider = timeProvider;
     }
 
     #endregion Public Constructors
@@ -369,23 +395,6 @@ public class NetHttpClient
     }
 
     /// <summary>
-    /// Implements the wait logic for the backoff strategy.
-    /// </summary>
-    /// <param name="request"><see cref="NetHttpRequest"/> to use in the backoff calculation.</param>
-    /// <param name="attempt">Count representing which attempt.</param>
-    /// <param name="cancellationToken">Token to cancel tasks.</param>
-    /// <returns>Completed Task after the delay.</returns>
-    private static async Task WaitAsync(
-        NetHttpRequest request,
-        int attempt,
-        CancellationToken cancellationToken)
-    {
-        // Backoff strategy - increase delay with each attempt
-        var amount = Math.Pow(request.RetryPattern.DelayMultiplierInSeconds, attempt);
-        await Task.Delay(TimeSpan.FromSeconds(amount), cancellationToken);
-    }
-
-    /// <summary>
     /// Copies a successful response body to the supplied <c>.part</c> file,
     /// recording bytes written, content type, and (optionally) a SHA-256 hash
     /// computed in the same single pass. Recreates the file on each invocation so
@@ -508,6 +517,28 @@ public class NetHttpClient
     }
 
     /// <summary>
+    /// Implements the wait logic for the backoff strategy.
+    /// </summary>
+    /// <param name="request"><see cref="NetHttpRequest"/> to use in the backoff calculation.</param>
+    /// <param name="attempt">Count representing which attempt.</param>
+    /// <param name="cancellationToken">Token to cancel tasks.</param>
+    /// <returns>Completed Task after the delay.</returns>
+    /// <remarks>
+    /// Routes the delay through the injected <see cref="TimeProvider"/> so a
+    /// fake clock can virtualize the wait — tests covering retry / backoff
+    /// timing do not pay the real wall-clock cost.
+    /// </remarks>
+    private async Task WaitAsync(
+        NetHttpRequest request,
+        int attempt,
+        CancellationToken cancellationToken)
+    {
+        // Backoff strategy - increase delay with each attempt
+        var amount = Math.Pow(request.RetryPattern.DelayMultiplierInSeconds, attempt);
+        await Task.Delay(TimeSpan.FromSeconds(amount), this._timeProvider, cancellationToken);
+    }
+
+    /// <summary>
     /// Create <see cref="HttpClient"/> using the factory.
     /// </summary>
     /// <param name="request"><see cref="NetHttpRequest"/> to use in the creation of the <see cref="HttpClient"/>.</param>
@@ -579,7 +610,7 @@ public class NetHttpClient
                                     attempt + 1,
                                     totalAttempts);
 
-                                await WaitAsync(request, attempt, cancellationToken);
+                                await this.WaitAsync(request, attempt, cancellationToken);
                                 continue;
                             }
 
@@ -618,7 +649,7 @@ public class NetHttpClient
                             attempt + 1,
                             totalAttempts);
 
-                        await WaitAsync(request, attempt, cancellationToken);
+                        await this.WaitAsync(request, attempt, cancellationToken);
                         continue;
                     }
 
@@ -644,7 +675,7 @@ public class NetHttpClient
                             attempt + 1,
                             totalAttempts);
 
-                        await WaitAsync(request, attempt, cancellationToken);
+                        await this.WaitAsync(request, attempt, cancellationToken);
                         continue;
                     }
 
@@ -668,7 +699,7 @@ public class NetHttpClient
                             attempt + 1,
                             totalAttempts);
 
-                        await WaitAsync(request, attempt, cancellationToken);
+                        await this.WaitAsync(request, attempt, cancellationToken);
                         continue;
                     }
 

@@ -319,12 +319,14 @@ public class LoggingActivityReaperTests
                 new SqlitePassthroughExecutor(),
                 factory,
                 options,
+                TimeProvider.System,
                 NullLogger<LoggingActivityRepository>.Instance);
 
             var service = new LoggingActivityService(
                 repository,
                 Mock.Of<ILoggingActivityInputRepository>(),
                 options,
+                TimeProvider.System,
                 NullLogger<LoggingActivityService>.Instance);
 
             return new Harness(factory, service, keepAliveConnection, keepAlive);

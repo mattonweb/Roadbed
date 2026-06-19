@@ -2,7 +2,6 @@ namespace Roadbed.Logging;
 
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
@@ -33,6 +32,7 @@ internal sealed class LogWriterHostedService : BackgroundService
     private readonly LoggingChannel _channel;
     private readonly ILoggingLogEntryRepository _repository;
     private readonly LoggingOptions _options;
+    private readonly TimeProvider _timeProvider;
     private readonly ILogger<LogWriterHostedService> _logger;
 
     #endregion Private Fields
@@ -45,21 +45,25 @@ internal sealed class LogWriterHostedService : BackgroundService
     /// <param name="channel">Bounded channel feeding the writer.</param>
     /// <param name="repository">Repository handling the chunked bulk INSERT.</param>
     /// <param name="options">Host-supplied logging options.</param>
+    /// <param name="timeProvider">Clock source used to time the flush interval. Defaults to <see cref="TimeProvider.System"/> in DI so production behavior is unchanged.</param>
     /// <param name="logger">Diagnostic logger. Its category sits under the recursion-guard prefix to keep the writer from logging through itself.</param>
     public LogWriterHostedService(
         LoggingChannel channel,
         ILoggingLogEntryRepository repository,
         LoggingOptions options,
+        TimeProvider timeProvider,
         ILogger<LogWriterHostedService> logger)
     {
         ArgumentNullException.ThrowIfNull(channel);
         ArgumentNullException.ThrowIfNull(repository);
         ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(timeProvider);
         ArgumentNullException.ThrowIfNull(logger);
 
         this._channel = channel;
         this._repository = repository;
         this._options = options;
+        this._timeProvider = timeProvider;
         this._logger = logger;
     }
 
@@ -117,7 +121,7 @@ internal sealed class LogWriterHostedService : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var batch = new List<LoggingLogEntry>(this._options.BatchSize);
-        var watch = Stopwatch.StartNew();
+        long flushStart = this._timeProvider.GetTimestamp();
 
         try
         {
@@ -132,14 +136,14 @@ internal sealed class LogWriterHostedService : BackgroundService
                     if (batch.Count >= this._options.BatchSize)
                     {
                         await this.FlushAsync(batch, stoppingToken).ConfigureAwait(false);
-                        watch.Restart();
+                        flushStart = this._timeProvider.GetTimestamp();
                     }
                 }
 
-                if (batch.Count > 0 && watch.Elapsed >= this._options.FlushInterval)
+                if (batch.Count > 0 && this._timeProvider.GetElapsedTime(flushStart) >= this._options.FlushInterval)
                 {
                     await this.FlushAsync(batch, stoppingToken).ConfigureAwait(false);
-                    watch.Restart();
+                    flushStart = this._timeProvider.GetTimestamp();
                 }
             }
         }

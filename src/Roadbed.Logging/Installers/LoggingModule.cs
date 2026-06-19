@@ -84,6 +84,13 @@ public static class LoggingModule
             typeof(LoggingActivityInput),
             typeof(LoggingLogEntry));
 
+        // TimeProvider — single in-process clock for every framework-stamped
+        // timestamp and time-based wait Roadbed performs. Defaults to the
+        // system clock; a consumer test can register a FakeTimeProvider
+        // BEFORE this call to override the production default. Registered
+        // via TryAddSingleton so that consumer-supplied registrations win.
+        services.TryAddSingleton<TimeProvider>(TimeProvider.System);
+
         // Repositories — internal sealed; one instance per process. Each
         // depends on the satellite-supplied ILoggingDataExecutor.
         services.TryAddSingleton<ILoggingActivityRepository, LoggingActivityRepository>();

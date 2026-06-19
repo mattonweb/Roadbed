@@ -1,8 +1,10 @@
 ﻿namespace Roadbed.Net.Installers;
 
+using System;
 using System.Net;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 /// <summary>
 /// Installer for Net HTTP Client services.
@@ -27,6 +29,12 @@ public class InstallNetHttpClient : IServiceCollectionInstaller
             {
                 AutomaticDecompression = DecompressionMethods.Deflate | DecompressionMethods.GZip,
             });
+
+        // TimeProvider — single in-process clock for the retry-backoff
+        // delay in NetHttpClient. Defaults to the system clock; a consumer
+        // test can register a FakeTimeProvider BEFORE this call to override
+        // and virtualize the backoff wait.
+        services.TryAddSingleton<TimeProvider>(TimeProvider.System);
 
         // Register INetHttpClient for dependency injection
         services.AddScoped<INetHttpClient, NetHttpClient>();
