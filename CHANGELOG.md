@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Added
+
+- Add `DapperDateOnlyHandler` and `DapperNullableDateOnlyHandler` for
+  SQLite TEXT / MariaDB DATE round-trip of `DateOnly` properties.
+  Consumers must register both via `SqlMapper.AddTypeHandler` (same
+  pattern as the existing DateTime handlers).
+
 ### Breaking
 
 - **Replaced Newtonsoft.Json with System.Text.Json across every Roadbed
