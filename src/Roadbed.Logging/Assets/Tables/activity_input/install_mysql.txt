@@ -28,8 +28,8 @@
 -- connection's session time zone.
 
 CREATE TABLE activity_input (
-     activity_id        CHAR(26) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
-    ,input_activity_id  CHAR(26) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
+     activity_id        CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
+    ,input_activity_id  CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
     ,input_role         VARCHAR(50) NULL
     ,created_on         DATETIME(6) NOT NULL DEFAULT (UTC_TIMESTAMP(6))
     ,PRIMARY KEY (activity_id, input_activity_id, created_on)

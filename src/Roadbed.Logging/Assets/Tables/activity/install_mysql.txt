@@ -23,7 +23,7 @@
 --   * Every UNIQUE / PRIMARY key on a partitioned InnoDB table must
 --     contain the partition column. Hence PRIMARY KEY (id, created_on).
 --   * There is intentionally NO standalone UNIQUE (id) — uniqueness of
---     the caller-supplied ULID is guaranteed by the application.
+--     the caller-supplied UUIDv7 is guaranteed by the application.
 --   * Partitioned InnoDB tables cannot have foreign keys; the lineage
 --     references in `activity_input` are soft on purpose.
 --   * Partition pruning only happens when the query filters on the
@@ -39,13 +39,16 @@
 --     safety net only; the Roadbed.Logging UPDATE path explicitly sets
 --     last_modified_on = UTC_TIMESTAMP(6) on every statement so the
 --     column is UTC regardless of the connection's session time_zone.
---   * ULID, trace, and span columns use ascii_bin so lexical order
---     equals chronological order.
+--   * Activity-id, trace, and span columns use ascii_bin so lexical
+--     order equals chronological order. UUIDv7 (the standardized
+--     identifier for activity ids) carries a big-endian millisecond
+--     timestamp in its first 48 bits, so the hex string still sorts
+--     chronologically under ascii_bin.
 
 CREATE TABLE activity (
-     id                    CHAR(26) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
-    ,parent_activity_id    CHAR(26) CHARACTER SET ascii COLLATE ascii_bin NULL
-    ,root_activity_id      CHAR(26) CHARACTER SET ascii COLLATE ascii_bin NULL
+     id                    CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
+    ,parent_activity_id    CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NULL
+    ,root_activity_id      CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NULL
     ,trace_id              CHAR(32) CHARACTER SET ascii COLLATE ascii_bin NULL
     ,span_id               CHAR(16) CHARACTER SET ascii COLLATE ascii_bin NULL
     ,activity_key          VARCHAR(100)  NULL

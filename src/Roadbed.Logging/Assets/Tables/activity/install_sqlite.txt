@@ -18,9 +18,11 @@
 -- All stored timestamps are UTC. created_on / last_modified_on default
 -- to strftime('%Y-%m-%dT%H:%M:%fZ','now') which SQLite always evaluates
 -- in UTC.
--- ULID, trace, and span columns use COLLATE BINARY so lexical order
--- equals chronological order and identifier comparisons are case-
--- sensitive.
+-- Activity-id, trace, and span columns use COLLATE BINARY so lexical
+-- order equals chronological order and identifier comparisons are
+-- case-sensitive. UUIDv7 (the standardized identifier for activity
+-- ids) carries a big-endian millisecond timestamp in its first 48
+-- bits, so the hex string still sorts chronologically.
 
 CREATE TABLE activity (
      id                    TEXT     NOT NULL COLLATE BINARY

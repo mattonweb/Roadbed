@@ -8,6 +8,21 @@
   SQLite TEXT / MariaDB DATE round-trip of `DateOnly` properties.
   Consumers must register both via `SqlMapper.AddTypeHandler` (same
   pattern as the existing DateTime handlers).
+- Widen Roadbed.Logging activity-id columns from `CHAR(26)` to
+  `CHAR(36)` so the schema accepts a 36-character UUIDv7
+  (`Guid.CreateVersion7()`). Six columns updated across the three
+  install MySQL DDL assets — `activity.id` / `parent_activity_id` /
+  `root_activity_id`, `activity_input.activity_id` /
+  `input_activity_id`, `log_entries.activity_id`. `ascii_bin` collation
+  is preserved: UUIDv7's first 48 bits are a big-endian millisecond
+  timestamp, so the hex string still sorts chronologically. SQLite
+  assets already type these as `TEXT` (no width cap) — only the
+  inline collation comment was updated. A consolidated MySQL upgrade
+  script (`Assets/Tables/upgrade_2026-06_uuidv7_widen_mysql.txt`)
+  widens the six columns in place via `ALTER ... MODIFY`. Public C#
+  surface is unchanged — activity ids are already `string` end-to-end
+  and Roadbed never generates them — but the XML doc comments and
+  README example now name UUIDv7 instead of ULID.
 - Inject `System.TimeProvider` into the in-process clock paths that
   stamp framework timestamps and time retry / backoff waits.
   `LoggingActivityService`, `LoggingActivityRepository`, and

@@ -38,7 +38,7 @@ public sealed class LoggingActivityScope : IDisposable
     /// <summary>
     /// Initializes a new instance of the <see cref="LoggingActivityScope"/> class.
     /// </summary>
-    /// <param name="activityId">Caller-supplied ULID of the underlying activity row.</param>
+    /// <param name="activityId">Caller-supplied UUIDv7 of the underlying activity row.</param>
     /// <param name="createdOn">UTC timestamp persisted in the row's <c>created_on</c> column. Captured here so subsequent update calls can include it in the WHERE clause and let MySQL prune to the one monthly partition that owns the row.</param>
     /// <param name="activity">The diagnostic <see cref="Activity"/> the service started, when one was created.</param>
     /// <param name="logScope">The MEL scope handle the service opened, when one was created.</param>
@@ -61,7 +61,7 @@ public sealed class LoggingActivityScope : IDisposable
     #region Public Properties
 
     /// <summary>
-    /// Gets the caller-supplied ULID of the underlying activity row.
+    /// Gets the caller-supplied UUIDv7 of the underlying activity row.
     /// </summary>
     public string ActivityId { get; }
 

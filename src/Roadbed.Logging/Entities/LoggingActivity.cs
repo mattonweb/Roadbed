@@ -15,11 +15,13 @@ using System.ComponentModel.DataAnnotations.Schema;
 /// when the run completes.
 /// </para>
 /// <para>
-/// Identifier values are <strong>caller-supplied ULIDs</strong> — Roadbed.Logging
+/// Identifier values are <strong>caller-supplied UUIDv7s</strong> (36-character
+/// canonical hex strings from <see cref="Guid.CreateVersion7()"/>) — Roadbed.Logging
 /// does not generate them. The opaque string carried in <see cref="Id"/> is
 /// expected to be lexically chronological so that range scans on the
 /// <c>activity</c> table align with insertion order without an auxiliary
-/// timestamp index.
+/// timestamp index. UUIDv7's first 48 bits are a big-endian millisecond
+/// timestamp, preserving that contract.
 /// </para>
 /// </remarks>
 public sealed class LoggingActivity
@@ -27,7 +29,7 @@ public sealed class LoggingActivity
     #region Public Properties
 
     /// <summary>
-    /// Gets or sets the caller-supplied ULID identifying this activity row.
+    /// Gets or sets the caller-supplied UUIDv7 identifying this activity row.
     /// </summary>
     [Column("id")]
     public string Id { get; set; } = string.Empty;

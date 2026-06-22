@@ -30,9 +30,9 @@ log_entries                  ── MySQL partitioned monthly, or SQLite plain t
 
 ## Activity tracking
 
-`LoggingActivityService` writes mutable rows to the `activity` table — one per run. The caller mints a ULID, passes it to `BeginAsync`, heartbeats during long-running steps, patches mid-run state via `UpdateAsync`, and records a terminal status with `CompleteAsync` or `FailAsync`. Lineage edges (Silver-consumes-Bronze) go into `activity_input` via `AddInputAsync`.
+`LoggingActivityService` writes mutable rows to the `activity` table — one per run. The caller mints a UUIDv7, passes it to `BeginAsync`, heartbeats during long-running steps, patches mid-run state via `UpdateAsync`, and records a terminal status with `CompleteAsync` or `FailAsync`. Lineage edges (Silver-consumes-Bronze) go into `activity_input` via `AddInputAsync`.
 
-Roadbed.Logging **does not generate identifiers**. The consuming app owns ULID generation and any ULID NuGet dependency.
+Roadbed.Logging **does not generate identifiers**. The consuming app owns identifier generation — the .NET-native `Guid.CreateVersion7()` is the standardized choice; its 36-character canonical hex string sorts chronologically under the column's `ascii_bin` (MySQL) / `BINARY` (SQLite) collation because the first 48 bits are a big-endian millisecond timestamp.
 
 ### Reaping crash-orphaned runs
 
@@ -69,7 +69,7 @@ await host.RunAsync();
 
 ```csharp
 // Inside a Quartz job (or any unit of work)
-string activityId = Ulid.NewUlid().ToString();
+string activityId = Guid.CreateVersion7().ToString();
 
 using LoggingActivityScope scope = await this._activities.BeginAsync(
     new LoggingActivityBeginRequest

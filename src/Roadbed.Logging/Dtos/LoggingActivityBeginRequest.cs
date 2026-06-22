@@ -1,15 +1,19 @@
 namespace Roadbed.Logging;
 
+using System;
+
 /// <summary>
 /// Request carrying the values the caller knows at the start of a run, used
 /// to insert the first <see cref="LoggingActivity"/> row.
 /// </summary>
 /// <remarks>
 /// <para>
-/// The <see cref="Id"/> property is the caller-supplied ULID; Roadbed.Logging
-/// does not generate identifiers. Every other property is optional and may
-/// be patched later via <see cref="LoggingActivityUpdateRequest"/> as the
-/// run discovers more about itself.
+/// The <see cref="Id"/> property is the caller-supplied UUIDv7 (the
+/// 36-character canonical hex string from <c>Guid.CreateVersion7()</c>);
+/// Roadbed.Logging does not generate identifiers. Every other property is
+/// optional and may be patched later via
+/// <see cref="LoggingActivityUpdateRequest"/> as the run discovers more
+/// about itself.
 /// </para>
 /// <para>
 /// The Quartz block is populated when the caller is a Quartz job that wants
@@ -24,8 +28,15 @@ public sealed class LoggingActivityBeginRequest
     #region Public Properties
 
     /// <summary>
-    /// Gets or sets the caller-supplied ULID identifying the new activity row.
+    /// Gets or sets the caller-supplied UUIDv7 identifying the new activity row.
     /// </summary>
+    /// <remarks>
+    /// The 36-character canonical hex string from
+    /// <see cref="Guid.CreateVersion7()"/>'s <c>ToString()</c> ("d" format).
+    /// UUIDv7 carries a big-endian millisecond timestamp in its first 48 bits,
+    /// so the string sorts chronologically under the column's <c>ascii_bin</c>
+    /// collation just as the older ULID encoding did.
+    /// </remarks>
     public string Id { get; set; } = string.Empty;
 
     /// <summary>

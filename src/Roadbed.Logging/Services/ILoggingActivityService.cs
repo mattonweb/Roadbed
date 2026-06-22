@@ -23,7 +23,7 @@ internal interface ILoggingActivityService
     /// Inserts a new <c>activity</c> row in the <see cref="LoggingActivityStatus.Running"/>
     /// state and opens an ambient scope that subsequent log lines inherit.
     /// </summary>
-    /// <param name="request">Initial values for the new activity row. The caller supplies the ULID identifier.</param>
+    /// <param name="request">Initial values for the new activity row. The caller supplies the UUIDv7 identifier.</param>
     /// <param name="cancellationToken">Token to notify when the operation should be canceled.</param>
     /// <returns>A disposable handle whose lifetime defines the ambient scope. Dispose to pop the scope; call <c>CompleteAsync</c> or <c>FailAsync</c> to mark the row terminal.</returns>
     Task<LoggingActivityScope> BeginAsync(
