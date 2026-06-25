@@ -21,6 +21,22 @@
 
 ### Added
 
+- Refactor Roadbed.Messaging off the Cysharp `Ulid` package onto the
+  BCL-native `Guid.CreateVersion7()` (.NET 9+). The five id-generation
+  sites in `BaseMessagingMessage` and `MessagingPublisher` now mint
+  UUIDv7s via `Guid.CreateVersion7().ToString()` (canonical lowercase
+  hyphenated 8-4-4-4-12 form); the constructors that accept an
+  explicit identifier parameter are unchanged. The `Ulid 1.4.1`
+  PackageReference is removed from `Roadbed.Messaging.csproj`.
+  Identifier wire format widens from 26 to 36 characters; chronological
+  sortability is preserved because UUIDv7's first 48 bits are a
+  big-endian millisecond timestamp. XML doc remarks, the README's
+  benefits section + JSON samples + property tables + Requirements
+  line, and the `code-roadbed-csharp` skill's messaging reference now
+  name UUIDv7. Tests in `src/Roadbed.Test.Unit/Messaging/` converted
+  to `Guid.CreateVersion7()` / `Guid.TryParse(...)`, including the
+  `MessagingPublisher` Identifier length assertion (26 → 36). Last
+  `Ulid` usage anywhere in Roadbed.
 - Add `DapperDateOnlyHandler` and `DapperNullableDateOnlyHandler` for
   SQLite TEXT / MariaDB DATE round-trip of `DateOnly` properties.
   Consumers must register both via `SqlMapper.AddTypeHandler` (same

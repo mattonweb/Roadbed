@@ -4,7 +4,7 @@ Standardized message envelope structure for pub/sub messaging systems (AWS SNS, 
 
 ## Overview
 
-This library provides strongly-typed message wrappers with automatic identifier generation (ULID), timestamps, publisher tracking, and JSON serialization support. Perfect for building event-driven architectures with consistent message formats.
+This library provides strongly-typed message wrappers with automatic identifier generation (UUIDv7 via `Guid.CreateVersion7()`), timestamps, publisher tracking, and JSON serialization support. Perfect for building event-driven architectures with consistent message formats.
 
 ## Installation
 ```bash
@@ -20,7 +20,7 @@ dotnet add package Roadbed.Messaging
 - **MessagingPublisher** - Identifies the source system/service publishing messages
 
 All messages include:
-- **Unique identifier** (ULID) - Lexicographically sortable, timestamp-based
+- **Unique identifier** (UUIDv7) - Lexicographically sortable, timestamp-based, 36-char canonical hex string
 - **Publisher information** - Who sent the message
 - **Timestamps** - When created (both source and envelope)
 - **Type codename** - Optional categorization
@@ -90,7 +90,7 @@ var responsePublisher = new MessagingPublisher(
 var response = new MessagingMessageResponse<OrderFulfilledPayload>(
     responsePublisher,
     "order.fulfilled",
-    Ulid.NewUlid().ToString(),
+    Guid.CreateVersion7().ToString(),
     new OrderFulfilledPayload { OrderId = 12345, TrackingNumber = "ABC123" })
 {
     OriginalRequestIdentifier = message.Identifier  // Link to original request
@@ -105,7 +105,7 @@ await sqsClient.SendMessageAsync(queueUrl, responseJson);
 ### JSON Format
 ```json
 {
-  "message_identifier": "01HQRS6K2MFXVW8N9PQ2T3Y4Z5",
+  "message_identifier": "019efbee-55c6-7c67-85bb-56d991c40d89",
   "message_type": "order.created",
   "publisher": {
     "publisher_identifier": "order-svc-instance-01",
@@ -127,9 +127,9 @@ await sqsClient.SendMessageAsync(queueUrl, responseJson);
 ### Response Message with Link
 ```json
 {
-  "message_identifier": "01HQRS8M7NKXYZ1A2B3C4D5E6F",
+  "message_identifier": "019efbee-7a13-7d11-9c64-f1a8c3e0b215",
   "message_type": "order.fulfilled",
-  "OriginalRequestIdentifier": "01HQRS6K2MFXVW8N9PQ2T3Y4Z5",
+  "OriginalRequestIdentifier": "019efbee-55c6-7c67-85bb-56d991c40d89",
   "publisher": {
     "publisher_identifier": "fulfillment-svc-01",
     "publisher_name": {
@@ -211,7 +211,7 @@ public class FulfillmentService
         var response = new MessagingMessageResponse<OrderFulfilledPayload>(
             publisher,
             "order.fulfilled",
-            Ulid.NewUlid().ToString(),
+            Guid.CreateVersion7().ToString(),
             new OrderFulfilledPayload
             {
                 OrderId = request.Data.OrderId,
@@ -235,7 +235,7 @@ public class FulfillmentService
 
 | Property | JSON Name | Type | Description |
 |----------|-----------|------|-------------|
-| `Identifier` | `message_identifier` | `string` | Unique ULID identifier |
+| `Identifier` | `message_identifier` | `string` | Unique UUIDv7 identifier (36-char canonical) |
 | `MessageTypeCodename` | `message_type` | `string?` | Type categorization (e.g., "order.created") |
 | `Publisher` | `publisher` | `MessagingPublisher` | Message source information |
 | `Data` | `data` | `T?` | Typed payload |
@@ -252,27 +252,28 @@ public class FulfillmentService
 
 | Property | JSON Name | Type | Description |
 |----------|-----------|------|-------------|
-| `Identifier` | `publisher_identifier` | `string` | Unique instance identifier (ULID) |
+| `Identifier` | `publisher_identifier` | `string` | Unique instance identifier (UUIDv7, 36-char canonical) |
 | `Name` | `publisher_name` | `CommonBusinessKey?` | Service name (key + display value) |
 
-## ULID Benefits
+## UUIDv7 Identifiers
 
-This library uses [ULID](https://github.com/ulid/spec) instead of GUID:
+This library generates identifiers via the BCL-native `Guid.CreateVersion7()`
+(.NET 9+). UUIDv7 preserves the sortable, timestamp-leading properties
+the library used to rely on the Cysharp `Ulid` package for:
 
-- **Sortable** - Lexicographically ordered by creation time
-- **Compact** - 26 characters vs 36 for GUID
-- **URL-safe** - No special characters
-- **Collision-resistant** - 128-bit randomness
-- **Timestamp-based** - First 48 bits encode millisecond timestamp
+- **Sortable** - Lexicographically ordered by creation time (first 48 bits are a big-endian millisecond timestamp)
+- **BCL-native** - No external NuGet dependency for id generation
+- **Collision-resistant** - 74 random bits per id
+- **Canonical 36-char hex string** - `Guid.CreateVersion7().ToString()` yields the lowercase 8-4-4-4-12 "D" format
+
 ```csharp
-// ULID: 01HQRS6K2MFXVW8N9PQ2T3Y4Z5
-// GUID: 123e4567-e89b-12d3-a456-426614174000
+// UUIDv7: 019efbee-55c6-7c67-85bb-56d991c40d89
 
-// ULIDs sort chronologically
-var ulid1 = Ulid.NewUlid();  // Created now
+// UUIDv7s sort chronologically
+var id1 = Guid.CreateVersion7();  // Created now
 await Task.Delay(100);
-var ulid2 = Ulid.NewUlid();  // Created 100ms later
-// ulid1 < ulid2 (lexicographically)
+var id2 = Guid.CreateVersion7();  // Created 100ms later
+// id1.ToString().CompareTo(id2.ToString()) < 0
 ```
 
 ## Type Codename Conventions
@@ -349,7 +350,7 @@ public async Task<MessagingMessageRequest<T>?> ReceiveMessageAsync<T>()
 
 - .NET 10.0+
 - System.Text.Json (built into the runtime; serialization uses the shared `RoadbedJson.Options` from Roadbed)
-- Ulid (for identifier generation)
+- `System.Guid.CreateVersion7()` (built into .NET 9+; no NuGet dependency for id generation)
 - Roadbed (for CommonBusinessKey, CommonKeyValuePair, and the shared JSON options)
 
 ## Related Packages

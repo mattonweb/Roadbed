@@ -156,7 +156,7 @@ public class MessagingMessageResponseSerializationTests
         var original = new MessagingMessageResponse<string>(
             publisher,
             "test.codename",
-            Ulid.NewUlid().ToString(),
+            Guid.CreateVersion7().ToString(),
             "payload")
         {
             OriginalRequestIdentifier = "01HQRS6K2MFXVW8N9PQ2T3Y4Z5",
@@ -185,7 +185,7 @@ public class MessagingMessageResponseSerializationTests
     {
         // Arrange (Given)
         var publisher = new MessagingPublisher(CommonBusinessKey.FromString("TESTPUBLISHER"));
-        string identifier = Ulid.NewUlid().ToString();
+        string identifier = Guid.CreateVersion7().ToString();
         var original = new MessagingMessageResponse<string>(
             publisher,
             "test.codename",

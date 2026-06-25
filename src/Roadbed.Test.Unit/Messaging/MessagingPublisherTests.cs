@@ -14,7 +14,7 @@ public class MessagingPublisherTests
     #region Public Methods
 
     /// <summary>
-    /// Verifies that the default constructor generates an Identifier with expected ULID length of 26 characters.
+    /// Verifies that the default constructor generates an Identifier with the expected UUIDv7 length of 36 characters.
     /// </summary>
     [TestMethod]
     public void Constructor_DefaultConstructor_GeneratesIdentifierWithCorrectLength()
@@ -23,7 +23,7 @@ public class MessagingPublisherTests
         var publisher = new MessagingPublisher();
 
         // Assert
-        Assert.AreEqual(26, publisher.Identifier.Length);
+        Assert.AreEqual(36, publisher.Identifier.Length);
     }
 
     /// <summary>
@@ -67,16 +67,16 @@ public class MessagingPublisherTests
     }
 
     /// <summary>
-    /// Verifies that the default constructor generates a valid ULID format for Identifier.
+    /// Verifies that the default constructor generates a valid UUIDv7 format for Identifier.
     /// </summary>
     [TestMethod]
-    public void Constructor_DefaultConstructor_GeneratesValidUlidIdentifier()
+    public void Constructor_DefaultConstructor_GeneratesValidUuidV7Identifier()
     {
         // Act
         var publisher = new MessagingPublisher();
 
         // Assert
-        Assert.IsTrue(Ulid.TryParse(publisher.Identifier, out _));
+        Assert.IsTrue(Guid.TryParse(publisher.Identifier, out _));
     }
 
     /// <summary>
@@ -93,7 +93,7 @@ public class MessagingPublisherTests
     }
 
     /// <summary>
-    /// Verifies that the constructor with name and identifier parameters accepts a custom non-ULID identifier.
+    /// Verifies that the constructor with name and identifier parameters accepts a custom non-UUIDv7 identifier.
     /// </summary>
     [TestMethod]
     public void Constructor_WithNameAndIdentifier_AcceptsCustomIdentifier()
@@ -129,14 +129,14 @@ public class MessagingPublisherTests
     }
 
     /// <summary>
-    /// Verifies that the constructor with name and identifier parameters accepts a valid ULID as the identifier.
+    /// Verifies that the constructor with name and identifier parameters accepts a valid UUIDv7 as the identifier.
     /// </summary>
     [TestMethod]
-    public void Constructor_WithNameAndIdentifier_AcceptsValidUlidIdentifier()
+    public void Constructor_WithNameAndIdentifier_AcceptsValidUuidV7Identifier()
     {
         // Arrange
         string name = "TESTPUBLISHER";
-        string identifier = Ulid.NewUlid().ToString();
+        string identifier = Guid.CreateVersion7().ToString();
 
         // Act
         var publisher = new MessagingPublisher(CommonBusinessKey.FromString(name), identifier);
@@ -144,7 +144,7 @@ public class MessagingPublisherTests
         // Assert
         Assert.AreEqual(name, publisher.Name!.Key);
         Assert.AreEqual(identifier, publisher.Identifier);
-        Assert.IsTrue(Ulid.TryParse(publisher.Identifier, out _));
+        Assert.IsTrue(Guid.TryParse(publisher.Identifier, out _));
     }
 
     /// <summary>

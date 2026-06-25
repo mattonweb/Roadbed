@@ -2,7 +2,7 @@
 
 Standardized, strongly-typed message envelopes for pub/sub messaging systems (AWS SNS / SQS, Azure Service Bus, RabbitMQ, etc.). Transport-agnostic — produces and consumes JSON envelopes that any broker can carry.
 
-Every envelope shares the same shape: a ULID identifier, publisher metadata, type codename, source and envelope timestamps, and a typed payload `T`.
+Every envelope shares the same shape: a UUIDv7 identifier (36-char canonical hex string from `Guid.CreateVersion7()`), publisher metadata, type codename, source and envelope timestamps, and a typed payload `T`.
 
 ## Type catalog (4 types)
 
@@ -11,27 +11,27 @@ Every envelope shares the same shape: a ULID identifier, publisher metadata, typ
 | `BaseMessagingMessage<T>`     | Abstract class | Shared envelope shape. Concrete request and response classes inherit it.            |
 | `MessagingMessageRequest<T>`  | Class          | Concrete envelope for messages sent **to** a system (commands, events).             |
 | `MessagingMessageResponse<T>` | Class          | Concrete envelope for **replies**. Adds `OriginalRequestIdentifier` for correlation. |
-| `MessagingPublisher`          | Class          | Identifies the publishing process: per-instance ULID + service name (`CommonBusinessKey`). |
+| `MessagingPublisher`          | Class          | Identifies the publishing process: per-instance UUIDv7 + service name (`CommonBusinessKey`). |
 
 ## MUST
 
 - **MUST** use `System.Text.Json` (`[JsonPropertyName(...)]`) for serialization. The envelope properties are decorated with STJ attributes; `Newtonsoft.Json` ignores them and produces the wrong wire format.
 - **MUST** pass `Roadbed.RoadbedJson.Options` to every `JsonSerializer.Serialize`/`Deserialize` call. Roadbed's envelope-property metadata is keyed by that single options instance; allocating fresh options per call both breaks STJ's reflection cache and risks losing the null-omission / case-insensitive / lenient-number behavior the framework was tuned for.
 - **MUST** set `MessageTypeCodename` on every message you publish. Use the constructor overload that takes `(publisher, typeCodename)` or `(publisher, typeCodename, identifier, data)`. Routing and broker-side filtering depend on it.
-- **MUST** construct **one** `MessagingPublisher` per process and reuse it for every message published from that process. The `Identifier` is the per-instance ULID; treat it as instance identity.
+- **MUST** construct **one** `MessagingPublisher` per process and reuse it for every message published from that process. The `Identifier` is the per-instance UUIDv7; treat it as instance identity.
 - **MUST** set `OriginalRequestIdentifier` on response messages. This is the only way consumers correlate replies with the originating request.
 - **MUST** validate `Data` is not null on the consumer side before processing. `Data` is nullable to permit envelope-only messages.
-- **MUST** use the parameterless constructor on `MessagingMessageRequest<T>` and `MessagingMessageResponse<T>` only via `JsonSerializer.Deserialize<...>(..., RoadbedJson.Options)` — not by hand. The publishing code path uses the parameterized constructors. `Identifier` and `CreatedOn` are marked `[JsonInclude]` so STJ binds their internal setters during deserialization; without that the parameterless constructor's fresh ULID would silently survive the round-trip.
+- **MUST** use the parameterless constructor on `MessagingMessageRequest<T>` and `MessagingMessageResponse<T>` only via `JsonSerializer.Deserialize<...>(..., RoadbedJson.Options)` — not by hand. The publishing code path uses the parameterized constructors. `Identifier` and `CreatedOn` are marked `[JsonInclude]` so STJ binds their internal setters during deserialization; without that the parameterless constructor's fresh UUIDv7 would silently survive the round-trip.
 
 ## MUST NOT
 
 - **MUST NOT** use `Newtonsoft.Json` for envelope serialization. The wire format breaks — `[JsonProperty]` is silently ignored and properties bind under C# names instead of `snake_case`.
 - **MUST NOT** allocate a `JsonSerializerOptions` per call when serializing envelopes. Reuse `Roadbed.RoadbedJson.Options` — STJ keys its reflection-derived metadata cache by options instance, so per-call options are the #1 STJ perf footgun.
-- **MUST NOT** construct a `MessagingPublisher` per message. Every message would get a different `Identifier` ULID, defeating instance correlation.
+- **MUST NOT** construct a `MessagingPublisher` per message. Every message would get a different `Identifier` UUIDv7, defeating instance correlation.
 - **MUST NOT** assign `Identifier` directly on a message — it has `internal set` on `BaseMessagingMessage<T>`. Use the constructor overload that accepts an identifier.
 - **MUST NOT** skip the null-check on `Data` after deserialization. A consumer that processes `request.Data.SomeField` will throw `NullReferenceException` for envelope-only messages.
 - **MUST NOT** mix casing in `MessageTypeCodename`. `Foo.Created` and `foo.created` are different keys to a broker filter.
-- **MUST NOT** use `Identifier` from `MessagingMessageResponse` to correlate the reply with the originating request — that's `OriginalRequestIdentifier`. The `Identifier` is the response's own ULID.
+- **MUST NOT** use `Identifier` from `MessagingMessageResponse` to correlate the reply with the originating request — that's `OriginalRequestIdentifier`. The `Identifier` is the response's own UUIDv7.
 
 ## Code patterns
 
@@ -329,10 +329,16 @@ using Roadbed.Messaging;               // BaseMessagingMessage, request/response
 | `entity.action.outcome`  | `bar.processed.success`, `bar.processed.failure` |
 | `domain.entity.action`   | `inventory.foo.restocked`, `billing.bar.invoiced` |
 
-### Identifier semantics (ULID — 26-char Crockford Base32)
+### Identifier semantics (UUIDv7 — 36-char canonical lowercase hex, from `Guid.CreateVersion7()`)
+
+UUIDv7's first 48 bits are a big-endian millisecond timestamp, so the
+canonical hex string sorts chronologically — the contract this library
+relied on the older Cysharp `Ulid` package for. `Guid.CreateVersion7()`
+is BCL-native (.NET 9+), so Roadbed.Messaging carries no NuGet
+dependency for id generation.
 
 | Property                        | Meaning                                                                |
 | ------------------------------- | ---------------------------------------------------------------------- |
-| `BaseMessagingMessage.Identifier` | The message's own ULID. Lexicographically sortable by creation time. |
-| `MessagingPublisher.Identifier` | The **publishing instance's** ULID — process / container / machine ID. |
+| `BaseMessagingMessage.Identifier` | The message's own UUIDv7. Lexicographically sortable by creation time. |
+| `MessagingPublisher.Identifier` | The **publishing instance's** UUIDv7 — process / container / machine ID. |
 | `MessagingMessageResponse.OriginalRequestIdentifier` | The `Identifier` of the request being replied to.   |

@@ -28,7 +28,7 @@ public abstract class BaseMessagingMessage<T>
     protected BaseMessagingMessage()
     {
         this.Publisher = null!;
-        this.Identifier = Ulid.NewUlid().ToString();
+        this.Identifier = Guid.CreateVersion7().ToString();
         this.SourceCreatedOn = DateTimeOffset.UtcNow;
         this.CreatedOn = DateTimeOffset.UtcNow;
     }
@@ -38,12 +38,14 @@ public abstract class BaseMessagingMessage<T>
     /// </summary>
     /// <param name="publisher">Publisher for the message.</param>
     /// <remarks>
-    /// The identifier is generated as a new ULID.
+    /// The identifier is generated as a new UUIDv7
+    /// (<see cref="Guid.CreateVersion7()"/>) in its canonical lowercase
+    /// hyphenated 8-4-4-4-12 form.
     /// </remarks>
     protected BaseMessagingMessage(MessagingPublisher publisher)
     {
         this.Publisher = publisher;
-        this.Identifier = Ulid.NewUlid().ToString();
+        this.Identifier = Guid.CreateVersion7().ToString();
         this.SourceCreatedOn = DateTimeOffset.UtcNow;
         this.CreatedOn = DateTimeOffset.UtcNow;
     }
@@ -54,13 +56,15 @@ public abstract class BaseMessagingMessage<T>
     /// <param name="publisher">Publisher for the message.</param>
     /// <param name="typeCodename">Codename indicating the type of message.</param>
     /// <remarks>
-    /// The identifier is generated as a new ULID.
+    /// The identifier is generated as a new UUIDv7
+    /// (<see cref="Guid.CreateVersion7()"/>) in its canonical lowercase
+    /// hyphenated 8-4-4-4-12 form.
     /// </remarks>
     protected BaseMessagingMessage(MessagingPublisher publisher, string typeCodename)
     {
         this.Publisher = publisher;
         this.MessageTypeCodename = typeCodename;
-        this.Identifier = Ulid.NewUlid().ToString();
+        this.Identifier = Guid.CreateVersion7().ToString();
         this.SourceCreatedOn = DateTimeOffset.UtcNow;
         this.CreatedOn = DateTimeOffset.UtcNow;
     }
@@ -140,7 +144,7 @@ public abstract class BaseMessagingMessage<T>
     /// <see cref="JsonIncludeAttribute"/> is required so System.Text.Json
     /// will use the <c>internal</c> setter during deserialization. Without
     /// it, STJ skips non-public accessors and the parameterless
-    /// constructor's freshly generated ULID would silently survive the
+    /// constructor's freshly generated UUIDv7 would silently survive the
     /// round-trip.
     /// </remarks>
     [JsonPropertyName("message_identifier")]

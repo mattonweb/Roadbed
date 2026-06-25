@@ -32,7 +32,9 @@ public class MessagingMessageRequest<T>
     /// </summary>
     /// <param name="publisher">Publisher for the event.</param>
     /// <remarks>
-    /// The identifier is generated as a new ULID.
+    /// The identifier is generated as a new UUIDv7
+    /// (<see cref="System.Guid.CreateVersion7()"/>) in its canonical
+    /// lowercase hyphenated 8-4-4-4-12 form.
     /// </remarks>
     public MessagingMessageRequest(MessagingPublisher publisher)
         : base(publisher)
@@ -45,7 +47,9 @@ public class MessagingMessageRequest<T>
     /// <param name="publisher">Publisher for the event.</param>
     /// <param name="typeCodename">Codename indicating the type of message.</param>
     /// <remarks>
-    /// The identifier is generated as a new ULID.
+    /// The identifier is generated as a new UUIDv7
+    /// (<see cref="System.Guid.CreateVersion7()"/>) in its canonical
+    /// lowercase hyphenated 8-4-4-4-12 form.
     /// </remarks>
     public MessagingMessageRequest(MessagingPublisher publisher, string typeCodename)
         : base(publisher, typeCodename)

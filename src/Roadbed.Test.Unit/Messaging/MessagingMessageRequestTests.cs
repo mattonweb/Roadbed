@@ -153,15 +153,15 @@ public class MessagingMessageRequestTests
     }
 
     /// <summary>
-    /// Verifies that the constructor with all parameters accepts a valid ULID as the identifier.
+    /// Verifies that the constructor with all parameters accepts a valid UUIDv7 as the identifier.
     /// </summary>
     [TestMethod]
-    public void Constructor_WithAllParameters_AcceptsValidUlidIdentifier()
+    public void Constructor_WithAllParameters_AcceptsValidUuidV7Identifier()
     {
         // Arrange
         var publisher = new MessagingPublisher(CommonBusinessKey.FromString("TestPublisher", true));
         string typeCodename = "test.message.request";
-        string identifier = Ulid.NewUlid().ToString();
+        string identifier = Guid.CreateVersion7().ToString();
         string data = "Test data payload";
 
         // Act
@@ -169,7 +169,7 @@ public class MessagingMessageRequestTests
 
         // Assert
         Assert.AreEqual(identifier, request.Identifier);
-        Assert.IsTrue(Ulid.TryParse(request.Identifier, out _));
+        Assert.IsTrue(Guid.TryParse(request.Identifier, out _));
     }
 
     /// <summary>
@@ -312,10 +312,10 @@ public class MessagingMessageRequestTests
     }
 
     /// <summary>
-    /// Verifies that the constructor with publisher parameter generates a valid ULID format for Identifier.
+    /// Verifies that the constructor with publisher parameter generates a valid UUIDv7 format for Identifier.
     /// </summary>
     [TestMethod]
-    public void Constructor_WithPublisher_GeneratesValidUlidIdentifier()
+    public void Constructor_WithPublisher_GeneratesValidUuidV7Identifier()
     {
         // Arrange
         var publisher = new MessagingPublisher(CommonBusinessKey.FromString("TestPublisher", true));
@@ -324,7 +324,7 @@ public class MessagingMessageRequestTests
         var request = new MessagingMessageRequest<string>(publisher);
 
         // Assert
-        Assert.IsTrue(Ulid.TryParse(request.Identifier, out _));
+        Assert.IsTrue(Guid.TryParse(request.Identifier, out _));
     }
 
     /// <summary>
@@ -535,10 +535,10 @@ public class MessagingMessageRequestTests
     }
 
     /// <summary>
-    /// Verifies that the constructor with publisher and typeCodename parameters generates a valid ULID Identifier.
+    /// Verifies that the constructor with publisher and typeCodename parameters generates a valid UUIDv7 Identifier.
     /// </summary>
     [TestMethod]
-    public void Constructor_WithPublisherAndTypeCodename_GeneratesValidUlidIdentifier()
+    public void Constructor_WithPublisherAndTypeCodename_GeneratesValidUuidV7Identifier()
     {
         // Arrange
         var publisher = new MessagingPublisher(CommonBusinessKey.FromString("TestPublisher", true));
@@ -548,7 +548,7 @@ public class MessagingMessageRequestTests
         var request = new MessagingMessageRequest<string>(publisher, typeCodename);
 
         // Assert
-        Assert.IsTrue(Ulid.TryParse(request.Identifier, out _));
+        Assert.IsTrue(Guid.TryParse(request.Identifier, out _));
     }
 
     /// <summary>

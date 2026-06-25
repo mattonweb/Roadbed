@@ -4,6 +4,7 @@
 
 namespace Roadbed.Messaging;
 
+using System;
 using System.Text.Json.Serialization;
 using Roadbed.Common;
 
@@ -18,21 +19,28 @@ public class MessagingPublisher
     /// Initializes a new instance of the <see cref="MessagingPublisher"/> class.
     /// </summary>
     /// <remarks>
-    /// The identifier is generated as a new ULID.
+    /// The identifier is generated as a new UUIDv7
+    /// (<see cref="Guid.CreateVersion7()"/>) in its canonical lowercase
+    /// hyphenated 8-4-4-4-12 form.
     /// </remarks>
     public MessagingPublisher()
     {
-        this.Identifier = Ulid.NewUlid().ToString();
+        this.Identifier = Guid.CreateVersion7().ToString();
     }
 
     /// <summary>
     /// Initializes a new instance of the <see cref="MessagingPublisher"/> class.
     /// </summary>
     /// <param name="name">Name of the publisher.</param>
+    /// <remarks>
+    /// The identifier is generated as a new UUIDv7
+    /// (<see cref="Guid.CreateVersion7()"/>) in its canonical lowercase
+    /// hyphenated 8-4-4-4-12 form.
+    /// </remarks>
     public MessagingPublisher(CommonBusinessKey name)
     {
         this.Name = name;
-        this.Identifier = Ulid.NewUlid().ToString();
+        this.Identifier = Guid.CreateVersion7().ToString();
     }
 
     /// <summary>

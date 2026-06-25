@@ -153,15 +153,15 @@ public class MessagingMessageResponseTests
     }
 
     /// <summary>
-    /// Verifies that the constructor with all parameters accepts a valid ULID as the identifier.
+    /// Verifies that the constructor with all parameters accepts a valid UUIDv7 as the identifier.
     /// </summary>
     [TestMethod]
-    public void Constructor_WithAllParameters_AcceptsValidUlidIdentifier()
+    public void Constructor_WithAllParameters_AcceptsValidUuidV7Identifier()
     {
         // Arrange
         var publisher = new MessagingPublisher(CommonBusinessKey.FromString("TESTPUBLISHER"));
         string typeCodename = "test.message.response";
-        string identifier = Ulid.NewUlid().ToString();
+        string identifier = Guid.CreateVersion7().ToString();
         string data = "Test response data";
 
         // Act
@@ -169,7 +169,7 @@ public class MessagingMessageResponseTests
 
         // Assert
         Assert.AreEqual(identifier, response.Identifier);
-        Assert.IsTrue(Ulid.TryParse(response.Identifier, out _));
+        Assert.IsTrue(Guid.TryParse(response.Identifier, out _));
     }
 
     /// <summary>
@@ -373,10 +373,10 @@ public class MessagingMessageResponseTests
     }
 
     /// <summary>
-    /// Verifies that the constructor with publisher parameter generates a valid ULID format for Identifier.
+    /// Verifies that the constructor with publisher parameter generates a valid UUIDv7 format for Identifier.
     /// </summary>
     [TestMethod]
-    public void Constructor_WithPublisher_GeneratesValidUlidIdentifier()
+    public void Constructor_WithPublisher_GeneratesValidUuidV7Identifier()
     {
         // Arrange
         var publisher = new MessagingPublisher(CommonBusinessKey.FromString("TESTPUBLISHER"));
@@ -385,7 +385,7 @@ public class MessagingMessageResponseTests
         var response = new MessagingMessageResponse<string>(publisher);
 
         // Assert
-        Assert.IsTrue(Ulid.TryParse(response.Identifier, out _));
+        Assert.IsTrue(Guid.TryParse(response.Identifier, out _));
     }
 
     /// <summary>
@@ -612,10 +612,10 @@ public class MessagingMessageResponseTests
     }
 
     /// <summary>
-    /// Verifies that the constructor with publisher and typeCodename parameters generates a valid ULID Identifier.
+    /// Verifies that the constructor with publisher and typeCodename parameters generates a valid UUIDv7 Identifier.
     /// </summary>
     [TestMethod]
-    public void Constructor_WithPublisherAndTypeCodename_GeneratesValidUlidIdentifier()
+    public void Constructor_WithPublisherAndTypeCodename_GeneratesValidUuidV7Identifier()
     {
         // Arrange
         var publisher = new MessagingPublisher(CommonBusinessKey.FromString("TESTPUBLISHER"));
@@ -625,7 +625,7 @@ public class MessagingMessageResponseTests
         var response = new MessagingMessageResponse<string>(publisher, typeCodename);
 
         // Assert
-        Assert.IsTrue(Ulid.TryParse(response.Identifier, out _));
+        Assert.IsTrue(Guid.TryParse(response.Identifier, out _));
     }
 
     /// <summary>
@@ -792,22 +792,22 @@ public class MessagingMessageResponseTests
     }
 
     /// <summary>
-    /// Verifies that the OriginalRequestIdentifier property can be set to a ULID value.
+    /// Verifies that the OriginalRequestIdentifier property can be set to a UUIDv7 value.
     /// </summary>
     [TestMethod]
-    public void OriginalRequestIdentifierProperty_SetToUlid_AcceptsUlid()
+    public void OriginalRequestIdentifierProperty_SetToUuidV7_AcceptsUuidV7()
     {
         // Arrange
         var publisher = new MessagingPublisher(CommonBusinessKey.FromString("TESTPUBLISHER"));
         var response = new MessagingMessageResponse<string>(publisher);
-        string originalRequestId = Ulid.NewUlid().ToString();
+        string originalRequestId = Guid.CreateVersion7().ToString();
 
         // Act
         response.OriginalRequestIdentifier = originalRequestId;
 
         // Assert
         Assert.AreEqual(originalRequestId, response.OriginalRequestIdentifier);
-        Assert.IsTrue(Ulid.TryParse(response.OriginalRequestIdentifier, out _));
+        Assert.IsTrue(Guid.TryParse(response.OriginalRequestIdentifier, out _));
     }
 
     /// <summary>

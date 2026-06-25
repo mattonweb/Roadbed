@@ -92,7 +92,7 @@ public class MessagingMessageRequestSerializationTests
     {
         // Arrange (Given)
         var publisher = new MessagingPublisher(CommonBusinessKey.FromString("TESTPUBLISHER"));
-        string identifier = Ulid.NewUlid().ToString();
+        string identifier = Guid.CreateVersion7().ToString();
         var original = new MessagingMessageRequest<string>(
             publisher,
             "test.codename",
@@ -141,7 +141,7 @@ public class MessagingMessageRequestSerializationTests
             "Parameterless constructor should produce an instance.");
         Assert.IsNotNull(
             request.Identifier,
-            "Parameterless constructor should still generate a ULID identifier.");
+            "Parameterless constructor should still generate a UUIDv7 identifier.");
         Assert.IsNotNull(
             request.CreatedOn,
             "Parameterless constructor should set CreatedOn.");
