@@ -64,7 +64,7 @@ public class LoggingActivityReaperTests
         // Arrange (Given)
         await using Harness harness = await Harness.CreateAsync("app-a", environment: null, this.Token);
         DateTime now = DateTime.UtcNow;
-        await harness.SeedAsync("01STALEXXXXXXXXXXXXXXXXXXX", "app-a", environment: null, "running", heartbeat: now.AddHours(-2), started: now.AddHours(-2), created: now.AddHours(-2));
+        await harness.SeedAsync("01999999-1111-7000-8000-000000000001", "app-a", environment: null, "running", heartbeat: now.AddHours(-2), started: now.AddHours(-2), created: now.AddHours(-2));
 
         // Act (When)
         IReadOnlyList<string> reaped = await harness.Service.ReapStaleActivitiesAsync(
@@ -73,9 +73,9 @@ public class LoggingActivityReaperTests
             this.Token);
 
         // Assert (Then)
-        CollectionAssert.AreEqual(new[] { "01STALEXXXXXXXXXXXXXXXXXXX" }, reaped.ToArray());
+        CollectionAssert.AreEqual(new[] { "01999999-1111-7000-8000-000000000001" }, reaped.ToArray());
 
-        ActivityRow row = await harness.ReadAsync("01STALEXXXXXXXXXXXXXXXXXXX");
+        ActivityRow row = await harness.ReadAsync("01999999-1111-7000-8000-000000000001");
         Assert.AreEqual("canceled", row.Status, "Stale row must be transitioned to canceled.");
         Assert.IsFalse(string.IsNullOrWhiteSpace(row.CompletedOn), "completed_on must be stamped on reap.");
         Assert.IsFalse(string.IsNullOrWhiteSpace(row.LastModifiedOn), "last_modified_on must be stamped on reap.");
@@ -95,14 +95,14 @@ public class LoggingActivityReaperTests
         // Arrange (Given)
         await using Harness harness = await Harness.CreateAsync("app-a", environment: null, this.Token);
         DateTime now = DateTime.UtcNow;
-        await harness.SeedAsync("01FRESHHEARTBEATXXXXXXXXXX", "app-a", environment: null, "running", heartbeat: now, started: now.AddHours(-2), created: now.AddHours(-2));
+        await harness.SeedAsync("01999999-2222-7000-8000-000000000002", "app-a", environment: null, "running", heartbeat: now, started: now.AddHours(-2), created: now.AddHours(-2));
 
         // Act (When)
         IReadOnlyList<string> reaped = await harness.Service.ReapStaleActivitiesAsync(TimeSpan.FromMinutes(30), reason: null, this.Token);
 
         // Assert (Then)
         Assert.IsEmpty(reaped, "A row with a recent heartbeat must not be reaped.");
-        Assert.AreEqual("running", (await harness.ReadAsync("01FRESHHEARTBEATXXXXXXXXXX")).Status);
+        Assert.AreEqual("running", (await harness.ReadAsync("01999999-2222-7000-8000-000000000002")).Status);
     }
 
     /// <summary>
@@ -116,14 +116,14 @@ public class LoggingActivityReaperTests
         // Arrange (Given)
         await using Harness harness = await Harness.CreateAsync("app-a", environment: null, this.Token);
         DateTime now = DateTime.UtcNow;
-        await harness.SeedAsync("01JUSTBEGUNXXXXXXXXXXXXXXX", "app-a", environment: null, "running", heartbeat: null, started: null, created: now);
+        await harness.SeedAsync("01999999-3333-7000-8000-000000000003", "app-a", environment: null, "running", heartbeat: null, started: null, created: now);
 
         // Act (When)
         IReadOnlyList<string> reaped = await harness.Service.ReapStaleActivitiesAsync(TimeSpan.FromMinutes(30), reason: null, this.Token);
 
         // Assert (Then)
         Assert.IsEmpty(reaped, "A just-begun row (recent created_on, null heartbeat) must not be reaped.");
-        Assert.AreEqual("running", (await harness.ReadAsync("01JUSTBEGUNXXXXXXXXXXXXXXX")).Status);
+        Assert.AreEqual("running", (await harness.ReadAsync("01999999-3333-7000-8000-000000000003")).Status);
     }
 
     /// <summary>
@@ -139,18 +139,18 @@ public class LoggingActivityReaperTests
         await using Harness harness = await Harness.CreateAsync("app-a", environment: "production", this.Token);
         DateTime stale = DateTime.UtcNow.AddHours(-2);
 
-        await harness.SeedAsync("01MINEXXXXXXXXXXXXXXXXXXXX", "app-a", "production", "running", heartbeat: stale, started: stale, created: stale);
-        await harness.SeedAsync("01OTHERAPPXXXXXXXXXXXXXXXX", "app-b", "production", "running", heartbeat: stale, started: stale, created: stale);
-        await harness.SeedAsync("01OTHERENVXXXXXXXXXXXXXXXX", "app-a", "staging", "running", heartbeat: stale, started: stale, created: stale);
+        await harness.SeedAsync("01999999-4444-7000-8000-000000000004", "app-a", "production", "running", heartbeat: stale, started: stale, created: stale);
+        await harness.SeedAsync("01999999-5555-7000-8000-000000000005", "app-b", "production", "running", heartbeat: stale, started: stale, created: stale);
+        await harness.SeedAsync("01999999-6666-7000-8000-000000000006", "app-a", "staging", "running", heartbeat: stale, started: stale, created: stale);
 
         // Act (When)
         IReadOnlyList<string> reaped = await harness.Service.ReapStaleActivitiesAsync(TimeSpan.FromMinutes(30), reason: null, this.Token);
 
         // Assert (Then)
-        CollectionAssert.AreEqual(new[] { "01MINEXXXXXXXXXXXXXXXXXXXX" }, reaped.ToArray(), "Only this application+environment's row may be reaped.");
-        Assert.AreEqual("canceled", (await harness.ReadAsync("01MINEXXXXXXXXXXXXXXXXXXXX")).Status);
-        Assert.AreEqual("running", (await harness.ReadAsync("01OTHERAPPXXXXXXXXXXXXXXXX")).Status, "A different application's row must remain untouched.");
-        Assert.AreEqual("running", (await harness.ReadAsync("01OTHERENVXXXXXXXXXXXXXXXX")).Status, "A different environment's row must remain untouched.");
+        CollectionAssert.AreEqual(new[] { "01999999-4444-7000-8000-000000000004" }, reaped.ToArray(), "Only this application+environment's row may be reaped.");
+        Assert.AreEqual("canceled", (await harness.ReadAsync("01999999-4444-7000-8000-000000000004")).Status);
+        Assert.AreEqual("running", (await harness.ReadAsync("01999999-5555-7000-8000-000000000005")).Status, "A different application's row must remain untouched.");
+        Assert.AreEqual("running", (await harness.ReadAsync("01999999-6666-7000-8000-000000000006")).Status, "A different environment's row must remain untouched.");
     }
 
     /// <summary>
@@ -166,7 +166,19 @@ public class LoggingActivityReaperTests
         DateTime stale = DateTime.UtcNow.AddHours(-2);
         foreach (string terminal in new[] { "succeeded", "failed", "canceled", "skipped" })
         {
-            await harness.SeedAsync($"01TERMINAL-{terminal}", "app-a", null, terminal, heartbeat: stale, started: stale, created: stale);
+            // Distinct UUIDv7-format ids per terminal status so the seed table
+            // has unique primary keys and the reaper test does not accidentally
+            // touch a duplicate. The terminal status is encoded in the last
+            // segment for human inspection of failures.
+            string terminalId = terminal switch
+            {
+                "succeeded" => "01999999-aaaa-7000-8000-00000000000a",
+                "failed" => "01999999-aaaa-7000-8000-00000000000b",
+                "canceled" => "01999999-aaaa-7000-8000-00000000000c",
+                "skipped" => "01999999-aaaa-7000-8000-00000000000d",
+                _ => throw new InvalidOperationException($"Unhandled terminal status '{terminal}' in test fixture."),
+            };
+            await harness.SeedAsync(terminalId, "app-a", null, terminal, heartbeat: stale, started: stale, created: stale);
         }
 
         // Act (When)
@@ -187,19 +199,94 @@ public class LoggingActivityReaperTests
         // Arrange (Given)
         await using Harness harness = await Harness.CreateAsync("app-a", environment: null, this.Token);
         DateTime now = DateTime.UtcNow;
-        await harness.SeedAsync("01STALEONEXXXXXXXXXXXXXXXX", "app-a", null, "running", heartbeat: now.AddHours(-3), started: now.AddHours(-3), created: now.AddHours(-3));
-        await harness.SeedAsync("01STALETWOXXXXXXXXXXXXXXXX", "app-a", null, "running", heartbeat: null, started: null, created: now.AddHours(-3));
-        await harness.SeedAsync("01FRESHONEXXXXXXXXXXXXXXXX", "app-a", null, "running", heartbeat: now, started: now, created: now);
+        await harness.SeedAsync("01999999-7777-7000-8000-000000000007", "app-a", null, "running", heartbeat: now.AddHours(-3), started: now.AddHours(-3), created: now.AddHours(-3));
+        await harness.SeedAsync("01999999-8888-7000-8000-000000000008", "app-a", null, "running", heartbeat: null, started: null, created: now.AddHours(-3));
+        await harness.SeedAsync("01999999-9999-7000-8000-000000000009", "app-a", null, "running", heartbeat: now, started: now, created: now);
 
         // Act (When)
         IReadOnlyList<string> stale = await harness.Service.FindStaleActivitiesAsync(TimeSpan.FromMinutes(30), this.Token);
 
         // Assert (Then)
         CollectionAssert.AreEquivalent(
-            new[] { "01STALEONEXXXXXXXXXXXXXXXX", "01STALETWOXXXXXXXXXXXXXXXX" },
+            new[] { "01999999-7777-7000-8000-000000000007", "01999999-8888-7000-8000-000000000008" },
             stale.ToArray(),
             "Find must return exactly the stale running ids.");
-        Assert.AreEqual("running", (await harness.ReadAsync("01STALEONEXXXXXXXXXXXXXXXX")).Status, "Find must not modify any row.");
+        Assert.AreEqual("running", (await harness.ReadAsync("01999999-7777-7000-8000-000000000007")).Status, "Find must not modify any row.");
+    }
+
+    /// <summary>
+    /// Regression test for the Guid-mapping bug in
+    /// <see cref="LoggingActivityRepository.FindStaleAsync"/>: the read used to
+    /// declare <c>QueryAsync&lt;string&gt;</c>, which threw
+    /// "Object must implement IConvertible" against MySQL because MySqlConnector
+    /// materializes the CHAR(36) UUIDv7 column as a <see cref="Guid"/>. The fix
+    /// reads as <see cref="Guid"/> and projects via <see cref="Guid.ToString()"/>
+    /// to keep the public <c>IReadOnlyList&lt;string&gt;</c> contract.
+    /// </summary>
+    /// <remarks>
+    /// Exercised against SQLite (TEXT storage) because the unit-test rig has no
+    /// MySQL dependency. Two properties are pinned: <see cref="Guid"/> parses
+    /// successfully through the read path (proves the new type declaration
+    /// works), and the returned strings are the canonical lowercase
+    /// 8-4-4-4-12 form that <c>ReapAsync</c>'s <c>id IN @ActivityIds</c> clause
+    /// matches against the stored CHAR(36) value — proving find -> reap lands
+    /// on the same rows.
+    /// </remarks>
+    /// <returns>Task representing the asynchronous test.</returns>
+    [TestMethod]
+    public async Task FindStale_ThenReap_UuidV7Ids_RoundTripFinalizesSameRows()
+    {
+        // Arrange (Given) — seed with freshly generated UUIDv7s persisted in
+        // their canonical lowercase form, exactly as a production caller would
+        // mint them via Guid.CreateVersion7().
+        await using Harness harness = await Harness.CreateAsync("app-a", environment: null, this.Token);
+        string staleOne = Guid.CreateVersion7().ToString();
+        string staleTwo = Guid.CreateVersion7().ToString();
+        string fresh = Guid.CreateVersion7().ToString();
+
+        DateTime now = DateTime.UtcNow;
+        await harness.SeedAsync(staleOne, "app-a", null, "running", heartbeat: now.AddHours(-3), started: now.AddHours(-3), created: now.AddHours(-3));
+        await harness.SeedAsync(staleTwo, "app-a", null, "running", heartbeat: null, started: null, created: now.AddHours(-3));
+        await harness.SeedAsync(fresh, "app-a", null, "running", heartbeat: now, started: now, created: now);
+
+        // Act (When) — Find returns the stale ids as strings; Reap then
+        // consumes those ids back through "id IN @ActivityIds" to finalize the
+        // rows. If the format Find produces did not match the stored CHAR(36)
+        // value byte-for-byte, the reap would update zero rows.
+        IReadOnlyList<string> found = await harness.Service.FindStaleActivitiesAsync(
+            TimeSpan.FromMinutes(30),
+            this.Token);
+
+        IReadOnlyList<string> reaped = await harness.Service.ReapStaleActivitiesAsync(
+            TimeSpan.FromMinutes(30),
+            reason: "round-trip",
+            this.Token);
+
+        // Assert (Then)
+        CollectionAssert.AreEquivalent(
+            new[] { staleOne, staleTwo },
+            found.ToArray(),
+            "FindStaleAsync must return the seeded UUIDv7 strings exactly — proving the QueryAsync<Guid> path materializes and projects them correctly.");
+
+        foreach (string id in found)
+        {
+            Assert.AreEqual(
+                id.ToLowerInvariant(),
+                id,
+                "Returned ids must be canonical lowercase so ReapAsync's id IN @ActivityIds matches the stored CHAR(36) value byte-for-byte.");
+            Assert.IsTrue(
+                Guid.TryParseExact(id, "D", out _),
+                $"Returned id '{id}' must be a canonical 8-4-4-4-12 UUID string ('D' format).");
+        }
+
+        CollectionAssert.AreEquivalent(
+            new[] { staleOne, staleTwo },
+            reaped.ToArray(),
+            "ReapStaleActivitiesAsync must finalize the same rows FindStaleAsync surfaced — proving the find -> reap round-trip is consistent.");
+
+        Assert.AreEqual("canceled", (await harness.ReadAsync(staleOne)).Status);
+        Assert.AreEqual("canceled", (await harness.ReadAsync(staleTwo)).Status);
+        Assert.AreEqual("running", (await harness.ReadAsync(fresh)).Status, "The fresh row must remain untouched.");
     }
 
     #endregion Public Methods

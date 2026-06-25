@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### Fixed
+
+- `LoggingActivityRepository.FindStaleAsync` no longer throws
+  `System.Data.DataException: ... Object must implement IConvertible`
+  when a MySQL-hosted Roadbed.Logging sweep runs the startup stale-reap.
+  The bug surfaced after the UUIDv7 column widen: with
+  `GuidFormat=Char36` on the connection string MySqlConnector
+  materializes the CHAR(36) `id` column as `System.Guid`, and Dapper
+  could not downcast a Guid back into the `QueryAsync<string>` the
+  read declared. The read now uses a private typed POCO with an
+  `object?` `Id` property and projects each row to a canonical
+  lowercase 8-4-4-4-12 string via a runtime-type switch, so it works
+  uniformly against MySQL (Guid materialization) and SQLite (string
+  materialization). The public `IReadOnlyList<string>` contract is
+  preserved and the format `FindStale -> Reap` round-trips through
+  `id IN @ActivityIds` byte-for-byte.
+
 ### Added
 
 - Add `DapperDateOnlyHandler` and `DapperNullableDateOnlyHandler` for

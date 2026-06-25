@@ -408,11 +408,39 @@ internal sealed class LoggingActivityRepository
             Parameters = parameters,
         };
 
-        IEnumerable<string> ids = await this._executor
-            .QueryAsync<string>(request, this._factory, this.Logger, cancellationToken)
+        // Read the id column through a typed POCO with an object-typed
+        // property so this works regardless of how the underlying
+        // provider materializes the CHAR(36) UUIDv7 column:
+        //   * MySQL with GuidFormat=Char36 returns System.Guid
+        //   * MySQL with default GuidFormat returns System.String
+        //   * SQLite (TEXT) returns System.String
+        // Declaring the read as QueryAsync<string> threw against the
+        // MySQL/GuidFormat=Char36 path because Dapper cannot downcast a
+        // Guid to string ("Object must implement IConvertible"); the
+        // symmetric QueryAsync<Guid> would throw against the SQLite
+        // path because Convert.ChangeType has no string -> Guid
+        // conversion. The typed POCO sidesteps both because Dapper
+        // assigns the raw column value into the object property
+        // without coercion; the switch projection here picks the
+        // right path per runtime type. The canonical lowercase
+        // 8-4-4-4-12 form Guid.ToString() produces is exactly what
+        // CHAR(36) stores and what ReapAsync's "id IN @ActivityIds"
+        // clause matches, so find -> reap lands on the same rows
+        // under both providers.
+        IEnumerable<StaleActivityIdRow> rows = await this._executor
+            .QueryAsync<StaleActivityIdRow>(request, this._factory, this.Logger, cancellationToken)
             .ConfigureAwait(false);
 
-        return ids.ToList();
+        return rows
+            .Select(r => r.Id)
+            .Where(o => o is not null)
+            .Select(o => o switch
+            {
+                Guid g => g.ToString(),
+                string s => s,
+                _ => o!.ToString() ?? string.Empty,
+            })
+            .ToList();
     }
 
     /// <inheritdoc/>
@@ -516,4 +544,25 @@ internal sealed class LoggingActivityRepository
     }
 
     #endregion Internal Methods
+
+    #region Private Types
+
+    /// <summary>
+    /// Row shape for <see cref="FindStaleAsync"/>'s single-column id read.
+    /// </summary>
+    /// <remarks>
+    /// The property is typed <see cref="object"/> rather than
+    /// <see cref="string"/> or <see cref="Guid"/> so Dapper materializes the
+    /// raw column value without coercion — the call-site switch then
+    /// normalizes whichever runtime type the provider produced (MySQL
+    /// returns <see cref="Guid"/>, SQLite returns <see cref="string"/>).
+    /// </remarks>
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Major Code Smell", "S3459:Unassigned members should be removed", Justification = "Dapper sets this property via reflection from the SELECT id column; the analyzer does not see the assignment.")]
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Major Code Smell", "S1144:Unused private types or members should be removed", Justification = "The set accessor is invoked by Dapper via reflection.")]
+    private sealed class StaleActivityIdRow
+    {
+        public object? Id { get; set; }
+    }
+
+    #endregion Private Types
 }
