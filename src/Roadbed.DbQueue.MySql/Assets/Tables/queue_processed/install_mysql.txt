@@ -1,0 +1,204 @@
+-- Roadbed.DbQueue :: queue_processed_{q} (MySQL / MariaDB)
+--
+-- Reference DDL template. Substitute the literal '{q}' below with the
+-- queue's logical name (the same value passed to QueueDefinition<T>:
+-- lowercase ASCII letters, digits, underscore; max 48 characters so
+-- this table identifier fits inside MySQL's 64-character limit).
+-- Then run this script with the business schema this queue lives in
+-- already selected:
+--
+--     USE foo_subscriptions;          -- example
+--     SOURCE install_mysql.txt;       -- or paste into your workbench
+--
+-- The table is created unqualified; the queue's IDataConnectionFactory
+-- in C# must point at this schema.
+--
+-- This is the PROCESSED-COMPANION table. The library INSERTs one row
+-- here per dispatch attempt (success OR failure) — that is, the
+-- presence of a row means "we tried", and the is_processed_successfully
+-- flag distinguishes outcome. There is no UPDATE/DELETE on this table
+-- from the library.
+--
+-- The app-level FIFO anti-join in QueueProcessor.ProcessBatchAsync —
+-- LEFT JOIN queue_processed_{q} ON fk_queue_id = m.id WHERE
+-- fk_queue_id IS NULL — is the REAL idempotency guard, not the
+-- per-month composite UNIQUE below. A processed row (either flag)
+-- excludes the message from every future batch; the library NEVER
+-- auto-retries. An operator replays a failed message by deleting its
+-- processed row externally, at which point the anti-join re-claims the
+-- original message — handlers MUST be idempotent.
+--
+-- Partitioning
+-- ============
+-- Partitioned MONTHLY by RANGE on TO_DAYS(processed_on) with 10 years
+-- of pre-created partitions (2026-01 .. 2035-12 = 120 monthly
+-- partitions), plus a p_min floor and a pmax catch-all. Add new
+-- monthly partitions before pmax begins absorbing live rows.
+--
+-- Retention is enforced EXTERNALLY by the DBA by dropping partitions
+-- older than the configured window. The recommended default window is
+-- 12 MONTHS (same as logging.activity), DBA-overridable per queue.
+--
+-- DROP-PARTITION ORDER MATTERS — drop the MESSAGE-table partition
+-- FIRST, then this table's matching partition.
+--
+-- Rationale: if you drop a month of PROCESSED rows while the matching
+-- MESSAGE rows survive, those messages lose their processed row and
+-- the anti-join immediately re-claims them — the handler runs again,
+-- possibly months later, on data the operator considered settled.
+-- Dropping the MESSAGE partition first removes those messages from the
+-- claim pool; the orphaned processed rows that remain in this table
+-- are harmless until their own partition is dropped.
+--
+-- Partition key rules
+--   * Every UNIQUE / PRIMARY key on a partitioned InnoDB table must
+--     contain the partition column. Hence PRIMARY KEY (id, processed_on)
+--     and UNIQUE KEY (fk_queue_id, processed_on).
+--   * NO FOREIGN KEY back to queue_message_{q}: partitioned InnoDB
+--     forbids FKs. The fk_queue_id column is a LOGICAL reference, not
+--     an enforced constraint.
+--   * The composite UNIQUE on (fk_queue_id, processed_on) is WEAKENED
+--     under partitioning: two attempts of the same fk_queue_id in
+--     DIFFERENT months would not collide on this key. That is
+--     acceptable only because the app-level anti-join is the real
+--     idempotency guard; the DB unique is a defense-in-depth backstop
+--     within a single partition. Documented on the C# claim path.
+--
+-- UTC contract
+-- ============
+-- processed_on defaults to UTC via UTC_TIMESTAMP(6) so the partition
+-- key never moves under the server's session time zone.
+
+CREATE TABLE queue_processed_{q} (
+     id                        BIGINT UNSIGNED NOT NULL AUTO_INCREMENT
+    ,fk_queue_id               BIGINT UNSIGNED NOT NULL
+    ,processed_on              DATETIME(6) NOT NULL DEFAULT (UTC_TIMESTAMP(6))
+    ,is_processed_successfully TINYINT(1) NOT NULL
+    ,PRIMARY KEY (id, processed_on)
+    ,UNIQUE KEY uk_processed_message (fk_queue_id, processed_on)
+    ,KEY idx_processed_fk (fk_queue_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+PARTITION BY RANGE (TO_DAYS(processed_on)) (
+     PARTITION p_min    VALUES LESS THAN (TO_DAYS('2026-01-01'))
+    ,PARTITION p_202601 VALUES LESS THAN (TO_DAYS('2026-02-01'))
+    ,PARTITION p_202602 VALUES LESS THAN (TO_DAYS('2026-03-01'))
+    ,PARTITION p_202603 VALUES LESS THAN (TO_DAYS('2026-04-01'))
+    ,PARTITION p_202604 VALUES LESS THAN (TO_DAYS('2026-05-01'))
+    ,PARTITION p_202605 VALUES LESS THAN (TO_DAYS('2026-06-01'))
+    ,PARTITION p_202606 VALUES LESS THAN (TO_DAYS('2026-07-01'))
+    ,PARTITION p_202607 VALUES LESS THAN (TO_DAYS('2026-08-01'))
+    ,PARTITION p_202608 VALUES LESS THAN (TO_DAYS('2026-09-01'))
+    ,PARTITION p_202609 VALUES LESS THAN (TO_DAYS('2026-10-01'))
+    ,PARTITION p_202610 VALUES LESS THAN (TO_DAYS('2026-11-01'))
+    ,PARTITION p_202611 VALUES LESS THAN (TO_DAYS('2026-12-01'))
+    ,PARTITION p_202612 VALUES LESS THAN (TO_DAYS('2027-01-01'))
+    ,PARTITION p_202701 VALUES LESS THAN (TO_DAYS('2027-02-01'))
+    ,PARTITION p_202702 VALUES LESS THAN (TO_DAYS('2027-03-01'))
+    ,PARTITION p_202703 VALUES LESS THAN (TO_DAYS('2027-04-01'))
+    ,PARTITION p_202704 VALUES LESS THAN (TO_DAYS('2027-05-01'))
+    ,PARTITION p_202705 VALUES LESS THAN (TO_DAYS('2027-06-01'))
+    ,PARTITION p_202706 VALUES LESS THAN (TO_DAYS('2027-07-01'))
+    ,PARTITION p_202707 VALUES LESS THAN (TO_DAYS('2027-08-01'))
+    ,PARTITION p_202708 VALUES LESS THAN (TO_DAYS('2027-09-01'))
+    ,PARTITION p_202709 VALUES LESS THAN (TO_DAYS('2027-10-01'))
+    ,PARTITION p_202710 VALUES LESS THAN (TO_DAYS('2027-11-01'))
+    ,PARTITION p_202711 VALUES LESS THAN (TO_DAYS('2027-12-01'))
+    ,PARTITION p_202712 VALUES LESS THAN (TO_DAYS('2028-01-01'))
+    ,PARTITION p_202801 VALUES LESS THAN (TO_DAYS('2028-02-01'))
+    ,PARTITION p_202802 VALUES LESS THAN (TO_DAYS('2028-03-01'))
+    ,PARTITION p_202803 VALUES LESS THAN (TO_DAYS('2028-04-01'))
+    ,PARTITION p_202804 VALUES LESS THAN (TO_DAYS('2028-05-01'))
+    ,PARTITION p_202805 VALUES LESS THAN (TO_DAYS('2028-06-01'))
+    ,PARTITION p_202806 VALUES LESS THAN (TO_DAYS('2028-07-01'))
+    ,PARTITION p_202807 VALUES LESS THAN (TO_DAYS('2028-08-01'))
+    ,PARTITION p_202808 VALUES LESS THAN (TO_DAYS('2028-09-01'))
+    ,PARTITION p_202809 VALUES LESS THAN (TO_DAYS('2028-10-01'))
+    ,PARTITION p_202810 VALUES LESS THAN (TO_DAYS('2028-11-01'))
+    ,PARTITION p_202811 VALUES LESS THAN (TO_DAYS('2028-12-01'))
+    ,PARTITION p_202812 VALUES LESS THAN (TO_DAYS('2029-01-01'))
+    ,PARTITION p_202901 VALUES LESS THAN (TO_DAYS('2029-02-01'))
+    ,PARTITION p_202902 VALUES LESS THAN (TO_DAYS('2029-03-01'))
+    ,PARTITION p_202903 VALUES LESS THAN (TO_DAYS('2029-04-01'))
+    ,PARTITION p_202904 VALUES LESS THAN (TO_DAYS('2029-05-01'))
+    ,PARTITION p_202905 VALUES LESS THAN (TO_DAYS('2029-06-01'))
+    ,PARTITION p_202906 VALUES LESS THAN (TO_DAYS('2029-07-01'))
+    ,PARTITION p_202907 VALUES LESS THAN (TO_DAYS('2029-08-01'))
+    ,PARTITION p_202908 VALUES LESS THAN (TO_DAYS('2029-09-01'))
+    ,PARTITION p_202909 VALUES LESS THAN (TO_DAYS('2029-10-01'))
+    ,PARTITION p_202910 VALUES LESS THAN (TO_DAYS('2029-11-01'))
+    ,PARTITION p_202911 VALUES LESS THAN (TO_DAYS('2029-12-01'))
+    ,PARTITION p_202912 VALUES LESS THAN (TO_DAYS('2030-01-01'))
+    ,PARTITION p_203001 VALUES LESS THAN (TO_DAYS('2030-02-01'))
+    ,PARTITION p_203002 VALUES LESS THAN (TO_DAYS('2030-03-01'))
+    ,PARTITION p_203003 VALUES LESS THAN (TO_DAYS('2030-04-01'))
+    ,PARTITION p_203004 VALUES LESS THAN (TO_DAYS('2030-05-01'))
+    ,PARTITION p_203005 VALUES LESS THAN (TO_DAYS('2030-06-01'))
+    ,PARTITION p_203006 VALUES LESS THAN (TO_DAYS('2030-07-01'))
+    ,PARTITION p_203007 VALUES LESS THAN (TO_DAYS('2030-08-01'))
+    ,PARTITION p_203008 VALUES LESS THAN (TO_DAYS('2030-09-01'))
+    ,PARTITION p_203009 VALUES LESS THAN (TO_DAYS('2030-10-01'))
+    ,PARTITION p_203010 VALUES LESS THAN (TO_DAYS('2030-11-01'))
+    ,PARTITION p_203011 VALUES LESS THAN (TO_DAYS('2030-12-01'))
+    ,PARTITION p_203012 VALUES LESS THAN (TO_DAYS('2031-01-01'))
+    ,PARTITION p_203101 VALUES LESS THAN (TO_DAYS('2031-02-01'))
+    ,PARTITION p_203102 VALUES LESS THAN (TO_DAYS('2031-03-01'))
+    ,PARTITION p_203103 VALUES LESS THAN (TO_DAYS('2031-04-01'))
+    ,PARTITION p_203104 VALUES LESS THAN (TO_DAYS('2031-05-01'))
+    ,PARTITION p_203105 VALUES LESS THAN (TO_DAYS('2031-06-01'))
+    ,PARTITION p_203106 VALUES LESS THAN (TO_DAYS('2031-07-01'))
+    ,PARTITION p_203107 VALUES LESS THAN (TO_DAYS('2031-08-01'))
+    ,PARTITION p_203108 VALUES LESS THAN (TO_DAYS('2031-09-01'))
+    ,PARTITION p_203109 VALUES LESS THAN (TO_DAYS('2031-10-01'))
+    ,PARTITION p_203110 VALUES LESS THAN (TO_DAYS('2031-11-01'))
+    ,PARTITION p_203111 VALUES LESS THAN (TO_DAYS('2031-12-01'))
+    ,PARTITION p_203112 VALUES LESS THAN (TO_DAYS('2032-01-01'))
+    ,PARTITION p_203201 VALUES LESS THAN (TO_DAYS('2032-02-01'))
+    ,PARTITION p_203202 VALUES LESS THAN (TO_DAYS('2032-03-01'))
+    ,PARTITION p_203203 VALUES LESS THAN (TO_DAYS('2032-04-01'))
+    ,PARTITION p_203204 VALUES LESS THAN (TO_DAYS('2032-05-01'))
+    ,PARTITION p_203205 VALUES LESS THAN (TO_DAYS('2032-06-01'))
+    ,PARTITION p_203206 VALUES LESS THAN (TO_DAYS('2032-07-01'))
+    ,PARTITION p_203207 VALUES LESS THAN (TO_DAYS('2032-08-01'))
+    ,PARTITION p_203208 VALUES LESS THAN (TO_DAYS('2032-09-01'))
+    ,PARTITION p_203209 VALUES LESS THAN (TO_DAYS('2032-10-01'))
+    ,PARTITION p_203210 VALUES LESS THAN (TO_DAYS('2032-11-01'))
+    ,PARTITION p_203211 VALUES LESS THAN (TO_DAYS('2032-12-01'))
+    ,PARTITION p_203212 VALUES LESS THAN (TO_DAYS('2033-01-01'))
+    ,PARTITION p_203301 VALUES LESS THAN (TO_DAYS('2033-02-01'))
+    ,PARTITION p_203302 VALUES LESS THAN (TO_DAYS('2033-03-01'))
+    ,PARTITION p_203303 VALUES LESS THAN (TO_DAYS('2033-04-01'))
+    ,PARTITION p_203304 VALUES LESS THAN (TO_DAYS('2033-05-01'))
+    ,PARTITION p_203305 VALUES LESS THAN (TO_DAYS('2033-06-01'))
+    ,PARTITION p_203306 VALUES LESS THAN (TO_DAYS('2033-07-01'))
+    ,PARTITION p_203307 VALUES LESS THAN (TO_DAYS('2033-08-01'))
+    ,PARTITION p_203308 VALUES LESS THAN (TO_DAYS('2033-09-01'))
+    ,PARTITION p_203309 VALUES LESS THAN (TO_DAYS('2033-10-01'))
+    ,PARTITION p_203310 VALUES LESS THAN (TO_DAYS('2033-11-01'))
+    ,PARTITION p_203311 VALUES LESS THAN (TO_DAYS('2033-12-01'))
+    ,PARTITION p_203312 VALUES LESS THAN (TO_DAYS('2034-01-01'))
+    ,PARTITION p_203401 VALUES LESS THAN (TO_DAYS('2034-02-01'))
+    ,PARTITION p_203402 VALUES LESS THAN (TO_DAYS('2034-03-01'))
+    ,PARTITION p_203403 VALUES LESS THAN (TO_DAYS('2034-04-01'))
+    ,PARTITION p_203404 VALUES LESS THAN (TO_DAYS('2034-05-01'))
+    ,PARTITION p_203405 VALUES LESS THAN (TO_DAYS('2034-06-01'))
+    ,PARTITION p_203406 VALUES LESS THAN (TO_DAYS('2034-07-01'))
+    ,PARTITION p_203407 VALUES LESS THAN (TO_DAYS('2034-08-01'))
+    ,PARTITION p_203408 VALUES LESS THAN (TO_DAYS('2034-09-01'))
+    ,PARTITION p_203409 VALUES LESS THAN (TO_DAYS('2034-10-01'))
+    ,PARTITION p_203410 VALUES LESS THAN (TO_DAYS('2034-11-01'))
+    ,PARTITION p_203411 VALUES LESS THAN (TO_DAYS('2034-12-01'))
+    ,PARTITION p_203412 VALUES LESS THAN (TO_DAYS('2035-01-01'))
+    ,PARTITION p_203501 VALUES LESS THAN (TO_DAYS('2035-02-01'))
+    ,PARTITION p_203502 VALUES LESS THAN (TO_DAYS('2035-03-01'))
+    ,PARTITION p_203503 VALUES LESS THAN (TO_DAYS('2035-04-01'))
+    ,PARTITION p_203504 VALUES LESS THAN (TO_DAYS('2035-05-01'))
+    ,PARTITION p_203505 VALUES LESS THAN (TO_DAYS('2035-06-01'))
+    ,PARTITION p_203506 VALUES LESS THAN (TO_DAYS('2035-07-01'))
+    ,PARTITION p_203507 VALUES LESS THAN (TO_DAYS('2035-08-01'))
+    ,PARTITION p_203508 VALUES LESS THAN (TO_DAYS('2035-09-01'))
+    ,PARTITION p_203509 VALUES LESS THAN (TO_DAYS('2035-10-01'))
+    ,PARTITION p_203510 VALUES LESS THAN (TO_DAYS('2035-11-01'))
+    ,PARTITION p_203511 VALUES LESS THAN (TO_DAYS('2035-12-01'))
+    ,PARTITION p_203512 VALUES LESS THAN (TO_DAYS('2036-01-01'))
+    ,PARTITION pmax     VALUES LESS THAN MAXVALUE
+);

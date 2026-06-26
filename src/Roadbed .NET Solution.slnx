@@ -14,6 +14,8 @@
   <Project Path="Roadbed.Data.Postgresql/Roadbed.Data.Postgresql.csproj" Id="ba095d52-38b3-4883-97a1-9a8064c1c47c" />
   <Project Path="Roadbed.Data.Sqlite/Roadbed.Data.Sqlite.csproj" Id="02f4a9f7-1704-4daa-906a-2dbecce7074c" />
   <Project Path="Roadbed.Data/Roadbed.Data.csproj" Id="d44e4793-96f5-4e70-af87-563fe5e59fcd" />
+  <Project Path="Roadbed.DbQueue/Roadbed.DbQueue.csproj" />
+  <Project Path="Roadbed.DbQueue.MySql/Roadbed.DbQueue.MySql.csproj" />
   <Project Path="Roadbed.IO.Csv/Roadbed.IO.Csv.csproj" Id="238da2b2-8413-4867-b8a5-dbd7a940d36a" />
   <Project Path="Roadbed.IO/Roadbed.IO.csproj" Id="47cdeba4-d3b1-4656-95e7-4d7760daecdf" />
   <Project Path="Roadbed.IO.Xlsx/Roadbed.IO.Xlsx.csproj" />
