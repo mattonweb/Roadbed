@@ -62,14 +62,35 @@
 -- created_on defaults to UTC via UTC_TIMESTAMP(6) so the partition key
 -- never moves under the server's session time zone.
 --
--- external_id is CHAR(36) ascii_bin: UUIDv7's first 48 bits are a
--- big-endian millisecond timestamp, so lexical order under ascii_bin
--- equals chronological order — useful for range scans on this column
--- even though the table's primary FIFO order is the auto-increment id.
+-- external_id is VARCHAR(36) ascii_bin, NOT CHAR(36) — deliberate.
+--
+-- UUIDv7's first 48 bits are a big-endian millisecond timestamp, so
+-- lexical order under ascii_bin equals chronological order — true for
+-- both CHAR and VARCHAR since byte-wise comparison is identical for
+-- fixed-width 36-char values.
+--
+-- The reason it must NOT be CHAR(36): MySqlConnector 2.6+ ships with
+-- GuidFormat=Char36 by default. Under that setting the driver
+-- materializes any CHAR column declaring 36 characters as System.Guid
+-- (TypeMapper.ConvertToMySqlDbType, ColumnType.String branch:
+--      CharacterSet != Binary
+--   && guidFormat == Char36
+--   && ColumnLength / BytesPerCharacter == 36).
+-- Roadbed.DbQueue stores external_id as the canonical lowercase
+-- hyphenated 36-character string (Guid.CreateVersion7().ToString("D"))
+-- and surfaces it as `string` end-to-end (EnqueueAsync return,
+-- QueueMessage<T>.ExternalId), so the driver returning a Guid would
+-- break Dapper materialization (Convert.ChangeType(Guid, string) →
+-- "Object must implement IConvertible"). VARCHAR uses the
+-- MYSQL_TYPE_VAR_STRING protocol code and falls into a DIFFERENT
+-- TypeMapper branch — never coerced to Guid regardless of the
+-- consumer's GuidFormat. A length other than 36 on CHAR would also
+-- work; VARCHAR(36) is the minimal-delta choice and pins the value
+-- size constraint identically to the original.
 
 CREATE TABLE queue_message_{q} (
      id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT
-    ,external_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
+    ,external_id VARCHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
     ,created_on  DATETIME(6) NOT NULL DEFAULT (UTC_TIMESTAMP(6))
     ,payload     JSON NOT NULL
     ,PRIMARY KEY (id, created_on)

@@ -1,0 +1,59 @@
+-- Roadbed.DbQueue :: external_id CHAR(36) → VARCHAR(36) migration (MySQL / MariaDB)
+--
+-- WHO NEEDS TO RUN THIS
+-- ====================
+-- Any host that deployed `queue_message_{q}` from the original
+-- install_mysql.txt template (which declared external_id as CHAR(36))
+-- AND opens its MySqlConnector connection with GuidFormat=Char36 — the
+-- default in MySqlConnector 2.6+. Symptom: QueueProcessor<T> claim
+-- throws on the first row every tick with
+--     System.Data.DataException: Error parsing column 1
+--         (ExternalId=...-... - Guid)
+--      ---> System.InvalidCastException: Object must implement IConvertible.
+-- The whole queue stays stuck (nothing ever lands in queue_processed).
+--
+-- The current install_mysql.txt template now declares external_id as
+-- VARCHAR(36) ascii_bin so this can never recur on new deployments.
+-- Existing deployments need this one-time ALTER.
+--
+-- WHY VARCHAR(36) FIXES IT
+-- ========================
+-- MySqlConnector's GuidFormat=Char36 only coerces columns whose
+-- protocol type is MYSQL_TYPE_STRING (CHAR) declaring exactly 36
+-- characters. VARCHAR uses MYSQL_TYPE_VAR_STRING and falls into a
+-- different TypeMapper branch — the driver returns it as `string`
+-- regardless of the consumer's GuidFormat. queue_processed_{q} has
+-- no external_id column, so it needs no change.
+--
+-- VALUE / KEYS PRESERVED
+-- ======================
+-- * UUIDv7 "D" form is fixed-width 36 chars; VARCHAR(36) constrains the
+--   value size identically to CHAR(36) ascii.
+-- * Byte-wise comparison under ascii_bin is identical for CHAR and
+--   VARCHAR on fixed-width 36-char values, so UUIDv7 lexical-equals-
+--   chronological ordering is preserved.
+-- * The composite UNIQUE (external_id, created_on) and the partition
+--   layout are untouched.
+--
+-- RUN ORDER
+-- =========
+-- One ALTER per deployed queue. Substitute {q} with each queue's
+-- logical name. ALTER on a partitioned InnoDB table acquires a
+-- metadata lock; pick a window with low enqueue traffic on that queue.
+--
+--     USE foo_subscriptions;              -- the queue's business schema
+--     ALTER TABLE queue_message_{q}
+--         MODIFY external_id VARCHAR(36)
+--             CHARACTER SET ascii
+--             COLLATE ascii_bin
+--             NOT NULL;
+--
+-- Verify after the ALTER:
+--     SHOW COLUMNS FROM queue_message_{q} LIKE 'external_id';
+-- The Type column should read 'varchar(36)'.
+
+ALTER TABLE queue_message_{q}
+    MODIFY external_id VARCHAR(36)
+        CHARACTER SET ascii
+        COLLATE ascii_bin
+        NOT NULL;

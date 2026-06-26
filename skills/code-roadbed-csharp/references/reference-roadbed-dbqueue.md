@@ -38,6 +38,7 @@ This deliberately diverges from the portfolio's existing **single-table-with-sta
 
 - **MUST** reference exactly **one** provider package — currently `Roadbed.DbQueue.MySql` — alongside the core `Roadbed.DbQueue`. Core itself has no MySqlConnector dependency.
 - **MUST** create the queue's two tables `queue_message_{q}` and `queue_processed_{q}` against the queue's business schema **before** the host starts. The library runs **no** DDL at any time. Use the reference templates shipped under `src/Roadbed.DbQueue.MySql/Assets/Tables/queue_message/install_mysql.txt` and `.../queue_processed/install_mysql.txt`; substitute the literal `{q}` placeholder with the queue's logical name.
+- **MUST** keep `queue_message_{q}.external_id` declared as `VARCHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL`. The library surfaces `ExternalId` as `string` end-to-end; `CHAR(36)` collides with `MySqlConnector`'s default `GuidFormat=Char36` and the driver hands back a `System.Guid`, crashing Dapper materialization (`Convert.ChangeType(Guid, string)` → "Object must implement IConvertible"). `VARCHAR` falls into a different MySQL protocol-type branch and is never coerced. Hosts that deployed from the original `CHAR(36)` template must run the one-time `ALTER` shipped at `Assets/Tables/upgrade_2026-06_external_id_varchar_mysql.txt`.
 - **MUST** keep each queue in the business schema it serves — not a dedicated queue schema, not the logging schema. The host registers a per-schema marker `IFooDatabaseFactory : IDataConnectionFactory` (standard `reference-roadbed-data.md` pattern) and passes that marker to `QueueDefinition<T>`. Multiple queues in the same host can therefore live in different databases without the library managing connection strings.
 - **MUST** validate queue names through `QueueDefinition<T>`'s constructor. Names are library-/host-controlled (never user-supplied), lowercased ASCII letters + digits + underscore only (`^[a-z0-9_]+$`), and bounded to 48 characters so `queue_processed_{q}` stays inside MySQL's 64-character identifier limit. The constructor throws `ArgumentException` before any SQL string is built.
 - **MUST** serialize payloads with the shared `Roadbed.RoadbedJson.Options`. The library itself does this on enqueue and claim; consuming code that constructs payload POCOs should annotate properties with `[JsonPropertyName(...)]` (System.Text.Json), not `[JsonProperty]`.
@@ -343,6 +344,26 @@ public sealed class FooUnsubscribeDrainJob : BaseSchedulingJob<FooUnsubscribeDra
 // ✅ Single-consumer is the contract. The attribute enforces it.
 [DisallowConcurrentExecution]
 public sealed class FooUnsubscribeDrainJob : BaseSchedulingJob<FooUnsubscribeDrainJob> { ... }
+```
+
+### Declaring `external_id` as `CHAR(36)`
+
+```sql
+-- ❌ Looks idiomatic for a fixed-width UUIDv7 string, but MySqlConnector
+-- 2.6+ defaults to GuidFormat=Char36, under which the driver returns any
+-- CHAR column declaring exactly 36 characters as System.Guid. Dapper then
+-- tries to assign that Guid to ClaimedMessageRow.ExternalId (a string),
+-- falls back to Convert.ChangeType(Guid → string), and throws
+-- "Object must implement IConvertible". The queue stays stuck on row 1.
+,external_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
+
+-- ✅ The shipped template uses VARCHAR(36). VARCHAR maps to
+-- MYSQL_TYPE_VAR_STRING, a different TypeMapper branch — never coerced
+-- to Guid regardless of the consumer's GuidFormat. Lexical-equals-
+-- chronological UUIDv7 ordering under ascii_bin is preserved (byte-wise
+-- comparison is identical for CHAR and VARCHAR on fixed-width 36-char
+-- values).
+,external_id VARCHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL
 ```
 
 ### Adding a foreign key in the reference DDL

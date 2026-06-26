@@ -30,6 +30,20 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<!--
+			Link the Roadbed.DbQueue.MySql DDL templates into this test
+			project's bin output so DbQueueDdlTemplateTests can read them
+			via Path.Combine(AppContext.BaseDirectory, "DbQueue", ...).
+			Catches future reverts of the external_id CHAR(36) → VARCHAR(36)
+			fix and the matching upgrade migration script.
+		-->
+		<None Include="..\Roadbed.DbQueue.MySql\Assets\Tables\**\*.txt"
+		      LinkBase="DbQueue\Assets\Tables">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+	</ItemGroup>
+
+	<ItemGroup>
 		<PackageReference Include="ClosedXML" Version="0.105.0" />
 		<PackageReference Include="CsvHelper" Version="33.1.0" />
 		<PackageReference Include="Dapper" Version="2.1.79" />
