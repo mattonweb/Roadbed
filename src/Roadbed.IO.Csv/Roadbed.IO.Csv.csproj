@@ -8,6 +8,8 @@
 	  <!-- Make sure any documentation comments which are included in code get checked for syntax during the build -->
 	  <GenerateDocumentationFile>true</GenerateDocumentationFile>
 	  <RootNamespace>Roadbed.IO</RootNamespace>
+	  <WarningLevel>9999</WarningLevel>
+	  <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
 
   <ItemGroup>

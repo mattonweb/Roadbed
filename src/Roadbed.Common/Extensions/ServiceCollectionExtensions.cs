@@ -197,6 +197,7 @@ public static class ServiceCollectionExtensions
     /// <param name="assembly">Assembly to scan for instances of IServiceCollectionInstaller.</param>
     /// <param name="services">Specifies the contract for a collection of service descriptors.</param>
     /// <param name="configuration">Represents a set of key/value application configuration properties.</param>
+    /// <param name="logger">Optional logger used to record installer discovery and service-registration progress; pass null to disable logging.</param>
     private static void InvokeInstallers(Assembly assembly, IServiceCollection services, IConfiguration configuration, ILogger? logger = null)
     {
         // Locate instances of IServiceCollectionInstaller

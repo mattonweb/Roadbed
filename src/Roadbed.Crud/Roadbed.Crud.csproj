@@ -7,16 +7,8 @@
 	  
 	  <!-- Make sure any documentation comments which are included in code get checked for syntax during the build -->
 	  <GenerateDocumentationFile>true</GenerateDocumentationFile>
-  </PropertyGroup>
-
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
-    <WarningLevel>3</WarningLevel>
-    <TreatWarningsAsErrors>True</TreatWarningsAsErrors>
-  </PropertyGroup>
-
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
-    <WarningLevel>3</WarningLevel>
-    <TreatWarningsAsErrors>True</TreatWarningsAsErrors>
+	  <WarningLevel>9999</WarningLevel>
+	  <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
 
   <ItemGroup>

@@ -560,6 +560,8 @@ public class NetHttpClient
     /// Implementation of the retry pattern with backoff strategy.
     /// </summary>
     /// <param name="request"><see cref="NetHttpRequest"/> to use in the creation of the <see cref="HttpClient"/>.</param>
+    /// <param name="completion">Controls whether <see cref="HttpClient.SendAsync(HttpRequestMessage, HttpCompletionOption, CancellationToken)"/> returns after reading the headers or after the entire response body has been buffered.</param>
+    /// <param name="onSuccessAsync">Optional callback invoked once a successful response is received; runs while the response is still open so streaming readers can consume the body before disposal.</param>
     /// <param name="cancellationToken">Token to cancel tasks.</param>
     /// <returns>API response.</returns>
     /// <remarks>
