@@ -57,6 +57,23 @@ of the build it belonged to.
 
 ## Ending a message: the Action Items block (REQUIRED)
 
+- ⛔ **THE BLOCK IS ADDRESSED TO THE RECIPIENT. Every item's owner must be either the RECIPIENT or
+  YOURSELF.** An item owned by a third party is a **report on someone else's work**: delete it. If another
+  seat needs to do something, **say it to them, in their own message** — you can reach every seat you share a
+  hub with, and one you cannot reach goes through the seat that leads that lane.
+- ⛔ **Never file an item on another seat's behalf, even when you are certain it is right.** A relayed ask
+  arrives without the reasoning that produced it, so the relayer cannot answer the first follow-up — and it
+  arrives carrying **the relayer's authority instead of yours**, which takes the decision away from the seat
+  whose decision it was. ⭐ *"Consider a relationship proposal" from a peer is a possibility that can be
+  weighed and declined; the same words arriving via a senior seat read as an instruction.*
+- ⚠ **Exactly one block per message.** If you notice an error after sending, send a correction as its own
+  message; **never a second block in the same one.** A message with two blocks has **no** Action Items at
+  all, because a reader cannot tell which one binds.
+- ⭐ **This fails in the direction that looks like diligence.** Naming who should do what reads as
+  thoroughness, so nothing about it feels wrong from inside the seat writing it. **Ruled 2026-09-13 after
+  three seats that cannot see each other did it inside two days — an instruction gap, not three slips.**
+
+
 Every message you send ends with this section, even when it is empty:
 
 ```
