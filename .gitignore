@@ -442,3 +442,6 @@ FodyWeavers.xsd
 
 # Shared skill reached by junction point from C:\Source\Signalbox (see Rulebook docs/SETUP.md); never commit the junction
 .claude/skills/code-csharp-mstest/
+
+# Shared skill reached by junction point from C:\Source\Signalbox (see Rulebook docs/SETUP.md); never commit the junction
+.claude/skills/code-roadbed-csharp/
