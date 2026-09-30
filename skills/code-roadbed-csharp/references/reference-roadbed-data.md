@@ -198,9 +198,9 @@ var conn = new DataConnecionString(DataConnectionStringType.PostgreSQL)
     ServerName = "localhost",
     DatabaseSource = "foo_db",
     Username = "foo",
-    Password = "secret",
+    Password = "{password}",
 };
-// Produces: Host=localhost;Database=foo_db;Username=foo;Password=secret;Timeout=20;
+// Produces: Host=localhost;Database=foo_db;Username=foo;Password={password};Timeout=20;
 
 // MySQL
 var conn = new DataConnecionString(DataConnectionStringType.MySQL)
@@ -208,9 +208,9 @@ var conn = new DataConnecionString(DataConnectionStringType.MySQL)
     ServerName = "localhost",
     DatabaseSource = "foo_db",
     Username = "foo",
-    Password = "secret",
+    Password = "{password}",
 };
-// Produces: Server=localhost;Database=foo_db;User ID=foo;Password=secret;Connection Timeout=20;AutoEnlist=true;
+// Produces: Server=localhost;Database=foo_db;User ID=foo;Password={password};Connection Timeout=20;AutoEnlist=true;
 ```
 
 ### Raw connection string when the template is insufficient
@@ -218,7 +218,7 @@ var conn = new DataConnecionString(DataConnectionStringType.MySQL)
 ```csharp
 var conn = new DataConnecionString(
     DataConnectionStringType.PostgreSQL,
-    "Host=db.example.com;Port=5433;Database=foo;Username=admin;Password=secret;SslMode=Require");
+    "Host=db.example.com;Port=5433;Database=foo;Username=admin;Password={password};SslMode=Require");
 // The string is used as-is; properties are ignored.
 ```
 

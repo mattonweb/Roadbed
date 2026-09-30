@@ -199,7 +199,7 @@ return await PostgresqlExecutor.QuerySingleOrDefaultAsync<Foo>(
 ```csharp
 // ❌ MySQL syntax — Npgsql doesn't recognize "Server=" or "User ID=".
 var conn = new DataConnecionString(DataConnectionStringType.PostgreSQL,
-    "Server=localhost;Database=foo;User ID=admin;Password=secret");
+    "Server=localhost;Database=foo;User ID=admin;Password={password}");
 
 // ✅ Use the property template; it produces the right keys.
 var conn = new DataConnecionString(DataConnectionStringType.PostgreSQL)
@@ -207,9 +207,9 @@ var conn = new DataConnecionString(DataConnectionStringType.PostgreSQL)
     ServerName = "localhost",
     DatabaseSource = "foo",
     Username = "admin",
-    Password = "secret",
+    Password = "{password}",
 };
-// Produces: Host=localhost;Database=foo;Username=admin;Password=secret;Timeout=20;
+// Produces: Host=localhost;Database=foo;Username=admin;Password={password};Timeout=20;
 ```
 
 ## Quick reference

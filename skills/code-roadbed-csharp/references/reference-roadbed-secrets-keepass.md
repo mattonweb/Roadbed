@@ -308,7 +308,7 @@ try
 }
 catch (InvalidOperationException)
 {
-    secret = new KeePassSecret { Password = "default" };
+    secret = new KeePassSecret { Password = "{password}" };
 }
 
 // ✅ Let the exception propagate at startup so the deploy fails fast.
