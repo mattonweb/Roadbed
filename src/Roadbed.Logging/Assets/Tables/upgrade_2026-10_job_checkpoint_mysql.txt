@@ -1,0 +1,53 @@
+-- Roadbed.Logging :: schema upgrade — add the job_checkpoint table
+-- ============================================================================
+-- Run this script with the target database already selected:
+--     USE logging;
+--     SOURCE upgrade_2026-10_job_checkpoint_mysql.txt;
+--
+-- What this does
+-- --------------
+-- Creates `job_checkpoint`, the durable "where did I leave off" state for
+-- scheduled jobs that implement ILoggingCheckpointedJob. It is a new
+-- table only: activity, activity_input and log_entries are not touched.
+-- The CREATE TABLE below is the same statement as
+-- job_checkpoint/install_mysql.txt (see that file for the column-by-column
+-- rationale), guarded by IF NOT EXISTS so a re-run is harmless.
+--
+-- CONTROL STATE, NOT LOG DATA
+-- ---------------------------
+-- NEVER prune this table and NEVER partition it. It must never be added
+-- to a retention pruner's table list. Deleting a row makes that job
+-- behave as if it had never run.
+--
+-- Grants
+-- ------
+-- The account your hosts use for the logging database needs exactly
+-- SELECT, INSERT and UPDATE on the new table. Do not grant DELETE.
+-- Replace the account placeholder before running:
+--
+--     GRANT SELECT, INSERT, UPDATE ON logging.job_checkpoint TO '{logging-user}'@'{host}';
+--
+-- An account that holds DROP or ALTER on the whole `logging` database
+-- (for example a partition-dropping retention pruner) can still reach
+-- this table; keep this table out of anything that account automates.
+
+CREATE TABLE IF NOT EXISTS job_checkpoint (
+     application                   VARCHAR(100)  CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL
+    ,environment                   VARCHAR(20)   CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL
+    ,job_group                     VARCHAR(200)  CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL
+    ,job_name                      VARCHAR(200)  CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL
+    ,checkpoint_key                VARCHAR(100)  CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL DEFAULT ''
+    ,position_id                   BIGINT        NULL
+    ,position_on                   DATETIME(6)   NULL
+    ,position_text                 VARCHAR(1024) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL
+    ,previous_position_id          BIGINT        NULL
+    ,previous_position_on          DATETIME(6)   NULL
+    ,previous_position_text        VARCHAR(1024) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL
+    ,version                       BIGINT        NOT NULL DEFAULT 0
+    ,advanced_by_fire_instance_id  VARCHAR(140)  NULL
+    ,last_run_started_on           DATETIME(6)   NULL
+    ,advanced_on                   DATETIME(6)   NULL
+    ,created_on                    DATETIME(6)   NOT NULL DEFAULT (UTC_TIMESTAMP(6))
+    ,last_modified_on              DATETIME(6)   NOT NULL DEFAULT (UTC_TIMESTAMP(6)) ON UPDATE CURRENT_TIMESTAMP(6)
+    ,PRIMARY KEY (application, environment, job_group, job_name, checkpoint_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -17,11 +17,12 @@ activity id like the CRUDALBT "B" tier.
 
 | Group                       | Types                                                                                                  |
 | --------------------------- | ------------------------------------------------------------------------------------------------------ |
-| Entities                    | `LoggingActivity`, `LoggingActivityInput`, `LoggingLogEntry`                                            |
+| Entities                    | `LoggingActivity`, `LoggingActivityInput`, `LoggingLogEntry`, `LoggingJobCheckpoint`                    |
 | Enums                       | `LoggingActivityStatus`, `LoggingActivityType`, `LoggingChannelFullPolicy`                              |
-| Public DTOs                 | `LoggingOptions`, `LoggingActivityBeginRequest`, `LoggingActivityUpdateRequest`                         |
+| Public DTOs                 | `LoggingOptions`, `LoggingActivityBeginRequest`, `LoggingActivityUpdateRequest`, `LoggingJobCheckpointPosition` |
 | Marker interface            | `ILoggingDatabaseFactory` (extends `IDataConnectionFactory`)                                            |
 | Service                     | `LoggingActivityService` (public sealed; dual ctor), `LoggingActivityScope` (IDisposable)               |
+| Job checkpoints             | `ILoggingCheckpointedJob` (a job implements it directly), `LoggingCheckpointedJobExtensions` (the job's `ReadCheckpointAsync` / `MarkCheckpointRunStartedAsync` / `TryAdvanceCheckpointAsync`), `ILoggingJobCheckpointService` (public, fakeable), `LoggingJobCheckpointService` (public sealed; dual ctor) |
 | OTel pipeline               | `RoadbedDbLogRecordExporter`, `LogWriterHostedService`, `LoggingChannel`                                |
 | Execution port              | `ILoggingDataExecutor` (internal; implemented by the provider satellites)                               |
 | Wiring (core)               | `LoggingModule.Register`, `LoggingBuilderExtensions.AddRoadbedDbLogging`                                |
@@ -36,7 +37,10 @@ activity id like the CRUDALBT "B" tier.
 - **MUST** generate the activity ULID in the consuming application — Roadbed.Logging does **not** generate identifiers. Pass the same ULID you used for `IAsyncBulkInsertOperation.BulkInsertAsync` calls during the run.
 - **MUST** set `LoggingOptions.Application` (and ideally `Environment`) so every row carries identifying provenance. The exporter stamps these onto every `LoggingLogEntry`.
 - **MUST** set `LoggingOptions.Schema` to the MySQL database name (e.g. `"ops"`, `"platform"`) in production. The default is the empty string for SQLite-dev friendliness.
-- **MUST** install the three table DDL scripts (`activity`, `activity_input`, `log_entries`) against the target schema **before** the host starts. Roadbed.Logging does not run schema migrations. The shipped MySQL scripts pre-create 10 years of monthly partitions (2026-01 .. 2035-12) on all three tables — no forward-rollover routine is needed until late 2035.
+- **MUST** install the three table DDL scripts (`activity`, `activity_input`, `log_entries`) against the target schema **before** the host starts. Roadbed.Logging does not run schema migrations. The shipped MySQL scripts pre-create 10 years of monthly partitions (2026-01 .. 2035-12) on all three tables — no forward-rollover routine is needed until late 2035. A host whose jobs use checkpoints also installs `job_checkpoint` (fresh database: `job_checkpoint/install_*.txt`; existing database: `upgrade_2026-10_job_checkpoint_mysql.txt`).
+- **MUST**, for a job that keeps a checkpoint, implement `ILoggingCheckpointedJob` next to `BaseSchedulingJob<T>`, add `public string JobGroup => this.Schedule.GroupName;`, and call the checkpoint extension methods only from `ExecuteAsync`. See [Job checkpoints](#job-checkpoints-iloggingcheckpointedjob).
+- **MUST** set a non-blank `LoggingOptions.Environment` (and `Application`) in any host whose jobs use checkpoints. Both are part of the checkpoint key, and a checkpoint call throws when either is blank.
+- **MUST** call `TryAdvanceCheckpointAsync` only **after** the work the new position covers has been saved, and outside any `TransactionScope`. Make that work safe to repeat: the checkpoint never shares a transaction with it.
 - **MUST** schedule a partition-drop routine on MySQL: drop partitions older than **12 months** for `activity` and `activity_input`, and older than **90 days** for `log_entries`. **Roadbed.Logging does not ship this routine** — the consuming app builds it (a stored proc invoked by a Roadbed.Scheduling job, or a MySQL EVENT). On SQLite, run the equivalent `DELETE FROM …` statements on the same cadence.
 - **MUST** pass the `LoggingActivityScope` to `HeartbeatAsync` / `CompleteAsync` / `FailAsync` instead of the bare activity id whenever the scope is in scope. The scope carries the row's `created_on`, which the framework includes in the UPDATE's WHERE clause so MySQL prunes to the single monthly partition that owns the row. The id-only overloads are kept for legacy / external callers but probe every monthly partition (~120).
 - **MUST** treat all stored timestamps as UTC. The DDL defaults `created_on` and `recorded_on` to `UTC_TIMESTAMP(6)` (MySQL) / `strftime('%Y-%m-%dT%H:%M:%fZ','now')` (SQLite); the framework's UPDATE path stamps `last_modified_on` with the UTC instant sourced from the injected `TimeProvider` (`_timeProvider.GetUtcNow().UtcDateTime`) on every call. `last_modified_on`'s `ON UPDATE CURRENT_TIMESTAMP(6)` clause is a safety net only — the explicit set wins.
@@ -55,6 +59,10 @@ activity id like the CRUDALBT "B" tier.
 - **MUST NOT** add a standalone `UNIQUE` on `activity.id` or any other partitioned-table single column. MySQL requires every unique key on a partitioned InnoDB table to contain the partition column, so the only PK is the composite one. Uniqueness of `activity.id` is guaranteed by the caller's ULID, not by a DB constraint.
 - **MUST NOT** add foreign keys between the three tables (or from them to anything else). Partitioned InnoDB tables cannot have FKs. The lineage edges in `activity_input` are soft references on purpose.
 - **MUST NOT** rely on the `last_modified_on` server-side `ON UPDATE` trigger to be UTC. The framework's UPDATE statements pass an explicit `@LastModifiedOn` parameter sourced from the injected `TimeProvider.GetUtcNow().UtcDateTime` that overrides the trigger. Custom queries that update the row outside the framework should pass an equivalent UTC value — or set the connection's session `time_zone` to `+00:00`.
+- **MUST NOT** prune, partition or delete from `job_checkpoint`, or add it to a retention routine's table list. It is control state: deleting a row makes that job re-run from the beginning.
+- **MUST NOT** resolve `ILoggingJobCheckpointService` in a job's constructor. Jobs are constructed while DI is still being configured; the extension methods resolve the service at call time.
+- **MUST NOT** use a job checkpoint in place of a queue that drains by a per-row state flag. A high-water mark (auto-increment id, clock time) can skip rows that concurrent writers commit out of order; use Roadbed.DbQueue for at-least-once work items.
+- **MUST NOT** retry `TryAdvanceCheckpointAsync` with the same expected version after it returns `false`. Another run advanced first: read the checkpoint again and decide from the new position.
 - **MUST NOT** re-register `LoggingChannel` in DI. `LoggingModule.Register` (invoked by the provider installer that `AddRoadbedDbLogging<…>()` runs) registers it as a process-wide shared instance built from `LoggingOptions`; the host writer (in the host container) and every producer-side OTel exporter (in any container — host, `ServiceLocator` snapshot, or test fixture) all need to resolve the **same** object. Overwriting that registration in `Program.cs` (e.g. via `services.AddSingleton<LoggingChannel>(new LoggingChannel(...))`) is what creates the "`activity` rows write but `log_entries` stays empty" symptom.
 
 ## Consuming-application host wiring
@@ -390,6 +398,150 @@ if (reaped.Count > 0)
   no cross-application "admin" reaper by design.
 - Use `FindStaleActivitiesAsync(staleAfter, ct)` for a read-only dry run.
 
+### Job checkpoints (`ILoggingCheckpointedJob`)
+
+A **checkpoint** is a scheduled job's durable "where did I leave off": the
+position its next run starts from. It survives restarts even on Quartz's
+in-memory store. It lives in `job_checkpoint`, keyed by
+`(application, environment, job_group, job_name, checkpoint_key)`.
+
+**When to use one**
+
+- **Change detection**: "has anything changed since the newest change I
+  already applied?" (the highest audit id, the latest `updated_on`).
+- **Bounded, resumable scans**: walk a source in pages and resume from the last
+  page token or id after a restart.
+- **A per-job gate** that must survive restarts: "act at most once per 24 hours"
+  reads `AdvancedOn`.
+- **Several cursors in one job**: one `checkpoint_key` each (`"criteria-rematch"`,
+  `$"board-{boardId}"`). Use `string.Empty` for a job's single checkpoint.
+
+**When not to use one**
+
+- **Work items that must each be processed at least once.** With concurrent
+  writers, an auto-increment id or a clock time can be committed out of order
+  and is then skipped forever. Use Roadbed.DbQueue, or a per-row state flag
+  the job drains, instead.
+- **Run history.** That is the `activity` row (`LoggingActivityService`).
+- **Configuration.** That is `SchedulingJobOptions` or the host's own options.
+- **Jobs that recompute everything every run.** They need no position.
+
+**Opting in**: inherit `BaseSchedulingJob<T>` as usual and also implement
+`ILoggingCheckpointedJob`. It declares identity only: `Name` (already provided
+by `BaseSchedulingJob<T>`) and `JobGroup`. Unlike `ISchedulingJob`, this
+interface has no base class: implement it directly.
+
+```csharp
+using Roadbed.Logging;
+using Roadbed.Scheduling;
+
+[DisallowConcurrentExecution]
+public sealed class CriteriaRematchJob
+    : BaseSchedulingJob<CriteriaRematchJob>, ILoggingCheckpointedJob
+{
+    private const string CheckpointKey = "criteria-rematch";
+    private static readonly TimeSpan RequeueInterval = TimeSpan.FromHours(24);
+
+    private readonly ICriteriaAuditReader _audits;
+    private readonly IMatchRequeuer _requeuer;
+    private readonly TimeProvider _timeProvider;
+
+    public CriteriaRematchJob(
+        ICriteriaAuditReader audits,
+        IMatchRequeuer requeuer,
+        TimeProvider timeProvider,
+        ILogger<CriteriaRematchJob> logger)
+        : base(
+            "CriteriaRematch",
+            "Re-queue matching when relevance criteria change",
+            new SchedulingSchedule("0 */15 * * * ?") { GroupName = "helpwanted" },
+            logger)
+    {
+        this._audits = audits;
+        this._requeuer = requeuer;
+        this._timeProvider = timeProvider;
+    }
+
+    // Quartz JobKey = (Name, Schedule.GroupName); Name comes from the base class.
+    public string JobGroup => this.Schedule.GroupName;
+
+    public override async Task ExecuteAsync(CancellationToken cancellationToken)
+    {
+        // null = never run in this application + environment. A failed read THROWS;
+        // it is never reported as null.
+        LoggingJobCheckpoint? checkpoint = await this.ReadCheckpointAsync(CheckpointKey, cancellationToken);
+        await this.MarkCheckpointRunStartedAsync(CheckpointKey, cancellationToken);
+
+        long newestAuditId = await this._audits.GetNewestAuditIdAsync(cancellationToken);
+        if (newestAuditId <= (checkpoint?.PositionId ?? 0))
+        {
+            return; // nothing changed
+        }
+
+        DateTime now = this._timeProvider.GetUtcNow().UtcDateTime;
+        if (checkpoint?.AdvancedOn is DateTime lastActed && now - lastActed < RequeueInterval)
+        {
+            return; // deferred: the run start is recorded, advanced_on is not moved
+        }
+
+        // Do the work and SAVE it first. It must be safe to repeat: a crash
+        // between here and the advance repeats it on the next run.
+        await this._requeuer.RequeueAllAsync(cancellationToken);
+
+        bool won = await this.TryAdvanceCheckpointAsync(
+            CheckpointKey,
+            checkpoint?.Version ?? 0,                                  // 0 = never run
+            new LoggingJobCheckpointPosition { Id = newestAuditId },
+            this.Context.FireInstanceId,                               // links to activity.fire_instance_id
+            cancellationToken);
+
+        if (!won)
+        {
+            this.LogInformation("Checkpoint {CheckpointKey} was advanced by another run", CheckpointKey);
+        }
+    }
+}
+```
+
+**The rules the code enforces, and what is still yours to get right**
+
+| Rule | Enforced by Roadbed | Your job |
+| ---- | ------------------- | -------- |
+| Advance only after the work is saved | Nothing advances implicitly; `TryAdvanceCheckpointAsync` and `MarkCheckpointRunStartedAsync` throw inside an ambient `TransactionScope` | Call `TryAdvanceCheckpointAsync` last, after the work's own commit |
+| Compare-and-set | The advance matches only `version = expectedVersion` and returns `false` when another run got there first | Pass the `Version` you read (`0` when the read was `null`); on `false`, re-read instead of retrying |
+| Fail loudly | Every database failure throws; blank or oversized key parts throw before the database is touched | Do not catch and treat a failure as "never run" |
+| Missing row ≠ failure | A missing row reads as `null` | Decide what "never run" means for your job (baseline, or full backfill) |
+| Per environment, per application | Both come from `LoggingOptions` and are part of the key | Set a non-blank `Environment` and `Application` |
+| No shared transaction | The logging database is reached on its own connection | Make the work safe to repeat |
+| Never pruned | DDL notice; no DELETE grant | Keep `job_checkpoint` out of every retention routine |
+
+- `MarkCheckpointRunStartedAsync` sets `LastRunStartedOn` only. It never moves
+  the position, `Version` or `AdvancedOn`, so a deferred pass can record itself
+  without resetting a gate that reads `AdvancedOn`.
+- An advance replaces all three cursors (`Id`, `On`, `Text`); a value left
+  `null` is stored as `null`, and at least one is required. `On` is stored as
+  supplied, truncated to microseconds; Roadbed does not convert it to UTC.
+  `LastRunStartedOn`, `AdvancedOn`, `CreatedOn` and `LastModifiedOn` are UTC.
+- Limits: `checkpoint_key` 100 characters, `position_text` 1,024, fire
+  instance id 140 (Quartz's own `ENTRY_ID` width). Key parts may not have
+  leading or trailing whitespace.
+
+**Unit-testing a checkpointed job**: `ILoggingJobCheckpointService` is public.
+Register a Moq fake in `ServiceLocator` (mark the test class
+`[DoNotParallelize]`, because `ServiceLocator` is process-wide) to drive "never
+run" (`ReadAsync` returns `null`), "lost race" (`TryAdvanceAsync` returns
+`false`) and "database down" (`ReadAsync` throws):
+
+```csharp
+var checkpoints = new Mock<ILoggingJobCheckpointService>(MockBehavior.Strict);
+checkpoints
+    .Setup(s => s.ReadAsync(It.IsAny<ILoggingCheckpointedJob>(), "criteria-rematch", It.IsAny<CancellationToken>()))
+    .ReturnsAsync((LoggingJobCheckpoint?)null);
+var services = new ServiceCollection();
+services.AddSingleton(checkpoints.Object);
+ServiceLocator.SetLocatorProvider(services.BuildServiceProvider());
+```
+
 ## Common pitfalls
 
 ❌ Disposing the scope without calling `CompleteAsync`:
@@ -434,6 +586,31 @@ await activities.CompleteAsync(id, LoggingActivityStatus.Failed);  // throws Arg
 ```
 ✅ Use `FailAsync(id, exception)` — it records the message and type as well.
 
+❌ Advancing a checkpoint before the work is saved, or inside the work's transaction:
+```csharp
+using var scope = new TransactionScope(TransactionScopeAsyncFlowOption.Enabled);
+await this.TryAdvanceCheckpointAsync(key, version, position, fireId, ct); // throws InvalidOperationException
+await SaveAsync(ct);
+scope.Complete();
+```
+✅ Save the work, complete and dispose the scope, then advance:
+```csharp
+using (var scope = new TransactionScope(TransactionScopeAsyncFlowOption.Enabled))
+{
+    await SaveAsync(ct);
+    scope.Complete();
+}
+await this.TryAdvanceCheckpointAsync(key, version, position, this.Context.FireInstanceId, ct);
+```
+
+❌ Treating a failed checkpoint read as "never run":
+```csharp
+LoggingJobCheckpoint? checkpoint;
+try { checkpoint = await this.ReadCheckpointAsync(key, ct); }
+catch { checkpoint = null; }   // a database outage now triggers a full backfill
+```
+✅ Let the exception propagate; the run fails and the next run tries again.
+
 ## Quick reference
 
 | Need                                                       | Use                                                                                                |
@@ -449,12 +626,17 @@ await activities.CompleteAsync(id, LoggingActivityStatus.Failed);  // throws Arg
 | Dry-run the reaper (read-only)                             | `await service.FindStaleActivitiesAsync(TimeSpan.FromMinutes(30), ct)`                             |
 | Wire MEL → OTel → DB                                       | `builder.Logging.AddRoadbedDbLogging()`                                                            |
 | Override drop policy                                       | `new LoggingOptions { ChannelFullPolicy = LoggingChannelFullPolicy.BlockBriefly }`                  |
+| Give a job a durable position                              | `: BaseSchedulingJob<T>, ILoggingCheckpointedJob` + `public string JobGroup => this.Schedule.GroupName;` |
+| Read a checkpoint (`null` = never run)                     | `await this.ReadCheckpointAsync(key, ct)`                                                          |
+| Record a run start without moving the position             | `await this.MarkCheckpointRunStartedAsync(key, ct)`                                                |
+| Advance after the work is saved                            | `await this.TryAdvanceCheckpointAsync(key, checkpoint?.Version ?? 0, position, this.Context.FireInstanceId, ct)` |
 
 ## DDL install scripts
 
 The source-of-truth files live under
-`src/Roadbed.Logging/Assets/Tables/<table>/install_<provider>.txt` — six
-files, three tables × two providers. The scripts create tables
+`src/Roadbed.Logging/Assets/Tables/<table>/install_<provider>.txt` — eight
+files, four tables × two providers — plus dated `upgrade_*_mysql.txt`
+migrations for databases installed before a change. The scripts create tables
 **unqualified**; run them after selecting the target database (`USE logging;`
 on MySQL, or against the right `.db` file on SQLite). Set
 `LoggingOptions.Schema` in the host to match the database name so C#
@@ -473,8 +655,16 @@ statements end up qualified consistently (`logging.activity`, etc.).
 | `activity`       | `(id, created_on)`                         | `RANGE (TO_DAYS(created_on))`       | 12 months | 120 months  |
 | `activity_input` | `(activity_id, input_activity_id, created_on)` | `RANGE (TO_DAYS(created_on))`   | 12 months | 120 months  |
 | `log_entries`    | `(id, event_time_utc)`                     | `RANGE (TO_DAYS(event_time_utc))`   | 90 days   | 120 months  |
+| `job_checkpoint` | `(application, environment, job_group, job_name, checkpoint_key)` | **none — never partition** | **never — control state** | — |
 
-Composite-PK rules (load-bearing):
+`job_checkpoint` is not log data. It holds one small row per job checkpoint,
+its key columns use `utf8mb4_bin`, and it must never be partitioned, pruned or
+deleted from. Grant the hosts' logging account `SELECT, INSERT, UPDATE` on it
+and nothing more. An existing logging database gets it from
+`upgrade_2026-10_job_checkpoint_mysql.txt` (same CREATE TABLE behind
+`IF NOT EXISTS`, plus the grant template).
+
+Composite-PK rules for the three partitioned log tables (load-bearing):
 
 - Every UNIQUE/PRIMARY key on a partitioned InnoDB table must contain the partition column.
 - No standalone `UNIQUE (id)` on any of the three tables — the composite PK is the only uniqueness constraint. Uniqueness of `activity.id` is the caller's responsibility (ULIDs are globally unique by construction).
@@ -586,6 +776,34 @@ CREATE INDEX idx_log_level_time     ON log_entries (log_level, event_time_utc);
 CREATE INDEX idx_log_time           ON log_entries (event_time_utc);
 ```
 
+#### job_checkpoint (SQLite)
+
+Control state: never include it in a retention `DELETE`. SQLite does not
+enforce declared widths, so the service validates them in C#.
+
+```sql
+CREATE TABLE job_checkpoint (
+     application                   TEXT     NOT NULL COLLATE BINARY
+    ,environment                   TEXT     NOT NULL COLLATE BINARY
+    ,job_group                     TEXT     NOT NULL COLLATE BINARY
+    ,job_name                      TEXT     NOT NULL COLLATE BINARY
+    ,checkpoint_key                TEXT     NOT NULL COLLATE BINARY DEFAULT ''
+    ,position_id                   INTEGER  NULL
+    ,position_on                   DATETIME NULL
+    ,position_text                 TEXT     NULL     COLLATE BINARY
+    ,previous_position_id          INTEGER  NULL
+    ,previous_position_on          DATETIME NULL
+    ,previous_position_text        TEXT     NULL     COLLATE BINARY
+    ,version                       INTEGER  NOT NULL DEFAULT 0
+    ,advanced_by_fire_instance_id  TEXT     NULL
+    ,last_run_started_on           DATETIME NULL
+    ,advanced_on                   DATETIME NULL
+    ,created_on                    DATETIME NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    ,last_modified_on              DATETIME NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    ,PRIMARY KEY (application, environment, job_group, job_name, checkpoint_key)
+);
+```
+
 ### Retention
 
 - **MySQL**, all three tables — schedule a partition-drop routine to `ALTER TABLE … DROP PARTITION p_YYYYMM` for every partition whose entire date range falls outside the retention window:
@@ -599,6 +817,7 @@ CREATE INDEX idx_log_time           ON log_entries (event_time_utc);
   DELETE FROM activity        WHERE created_on     < datetime('now', '-12 months');
   ```
   Follow with `VACUUM` (or set `PRAGMA auto_vacuum = INCREMENTAL` plus periodic `incremental_vacuum`) to reclaim disk.
+- **`job_checkpoint`, both providers — never.** It is control state, not log data. Never add it to a partition-drop routine or a retention `DELETE`.
 
 ## MCP / analytical query advice
 

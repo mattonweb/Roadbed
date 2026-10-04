@@ -24,6 +24,7 @@ This document is the authoritative reference for the Roadbed.Logging NuGet packa
 10. **Roadbed.Logging never reads `IConfiguration` directly.** The host populates `LoggingOptions` from whatever source it likes; the library only sees the POCO.
 11. **Roadbed.Logging never references `Roadbed.Crud`.** Do not add the dependency.
 12. **MySQL/MariaDB and SQLite are the only supported `DataConnectionStringType` values in v1.** Postgres, SQL Server, etc. cause the installer to throw.
+13. **A job that needs a durable position implements `ILoggingCheckpointedJob`** next to `BaseSchedulingJob<T>` and calls the `LoggingCheckpointedJobExtensions` methods from `ExecuteAsync`. Advance only after the work is saved, never inside a `TransactionScope`, and never prune or partition `job_checkpoint`. See [Job Checkpoints](architecture-roadbed-logging.md#job-checkpoints).
 
 ---
 
@@ -38,6 +39,7 @@ This document is the authoritative reference for the Roadbed.Logging NuGet packa
     - [activity](architecture-roadbed-logging.md#activity)
     - [activity_input](architecture-roadbed-logging.md#activity_input)
     - [log_entries](architecture-roadbed-logging.md#log_entries)
+    - [job_checkpoint](architecture-roadbed-logging.md#job_checkpoint)
 7. [LoggingActivityService](architecture-roadbed-logging.md#loggingactivityservice)
     - [BeginAsync](architecture-roadbed-logging.md#beginasync)
     - [HeartbeatAsync](architecture-roadbed-logging.md#heartbeatasync)
@@ -45,33 +47,35 @@ This document is the authoritative reference for the Roadbed.Logging NuGet packa
     - [CompleteAsync and FailAsync](architecture-roadbed-logging.md#completeasync-and-failasync)
     - [AddInputAsync](architecture-roadbed-logging.md#addinputasync)
     - [LoggingActivityScope](architecture-roadbed-logging.md#loggingactivityscope)
-8. [The Log Write Pipeline](architecture-roadbed-logging.md#the-log-write-pipeline)
+8. [Job Checkpoints](architecture-roadbed-logging.md#job-checkpoints)
+9. [The Log Write Pipeline](architecture-roadbed-logging.md#the-log-write-pipeline)
     - [RoadbedDbLogRecordExporter](architecture-roadbed-logging.md#roadbeddblogrecordexporter)
     - [LoggingChannel](architecture-roadbed-logging.md#loggingchannel)
     - [LogWriterHostedService](architecture-roadbed-logging.md#logwriterhostedservice)
     - [Recursion Safety](architecture-roadbed-logging.md#recursion-safety)
-9. [Module Auto-Discovery and Wiring](architecture-roadbed-logging.md#module-auto-discovery-and-wiring)
+10. [Module Auto-Discovery and Wiring](architecture-roadbed-logging.md#module-auto-discovery-and-wiring)
     - [Multi-Container Channel Sharing](architecture-roadbed-logging.md#multi-container-channel-sharing)
     - [Build-Order Robustness](architecture-roadbed-logging.md#build-order-robustness)
-10. [Schema Installation](architecture-roadbed-logging.md#schema-installation)
-11. [Implementation Walkthrough](architecture-roadbed-logging.md#implementation-walkthrough)
-12. [Common Pitfalls](architecture-roadbed-logging.md#common-pitfalls)
-13. [Troubleshooting](architecture-roadbed-logging.md#troubleshooting)
-14. [Quick Reference](architecture-roadbed-logging.md#quick-reference)
+11. [Schema Installation](architecture-roadbed-logging.md#schema-installation)
+12. [Implementation Walkthrough](architecture-roadbed-logging.md#implementation-walkthrough)
+13. [Common Pitfalls](architecture-roadbed-logging.md#common-pitfalls)
+14. [Troubleshooting](architecture-roadbed-logging.md#troubleshooting)
+15. [Quick Reference](architecture-roadbed-logging.md#quick-reference)
 
 ---
 
 ## Type Catalog
 
-Roadbed.Logging contains **17 public types** organized into seven groups.
+Roadbed.Logging contains **23 types** organized into eight groups.
 
-### Entities (3 types)
+### Entities (4 types)
 
 | Type                   | Kind         | Purpose                                                                  |
 | ---------------------- | ------------ | ------------------------------------------------------------------------ |
 | `LoggingActivity`      | Sealed class | One row in `activity`. Mutable — patched as the run progresses.          |
 | `LoggingActivityInput` | Sealed class | One edge in `activity_input` (the lineage DAG).                          |
 | `LoggingLogEntry`      | Sealed class | One row in `log_entries`. Append-only; populated by the exporter.        |
+| `LoggingJobCheckpoint` | Sealed class | One row in `job_checkpoint`: a checkpointed job's position, version and run times. Returned by checkpoint reads. |
 
 ### Enumerators (3 types)
 
@@ -81,13 +85,14 @@ Roadbed.Logging contains **17 public types** organized into seven groups.
 | `LoggingActivityType`         | Enum | `Unknown`, `Ingestion`, `Transformation`, `Promotion`, `Maintenance`, `Manual`, `Custom`. |
 | `LoggingChannelFullPolicy`    | Enum | `DropOldest` (default) or `BlockBriefly` for backpressure-on-overflow.            |
 
-### Public DTOs (3 types)
+### Public DTOs (4 types)
 
 | Type                            | Kind         | Purpose                                                                       |
 | ------------------------------- | ------------ | ----------------------------------------------------------------------------- |
 | `LoggingOptions`                | Sealed class | Host-supplied POCO: schema, application, batch tuning, recursion guard list.  |
 | `LoggingActivityBeginRequest`   | Sealed class | Initial values for a new activity row. Carries the caller-supplied ULID.      |
 | `LoggingActivityUpdateRequest`  | Sealed class | Patch payload for non-null current-state columns (target, metrics, Quartz). |
+| `LoggingJobCheckpointPosition`  | Sealed class | The position a checkpoint advances to: `Id`, `On` and/or `Text` cursors.      |
 
 ### Marker Interface (1 type)
 
@@ -101,6 +106,15 @@ Roadbed.Logging contains **17 public types** organized into seven groups.
 | -------------------------- | ------------------- | ----------------------------------------------------------------------------- |
 | `LoggingActivityService`   | Public sealed class | Activity lifecycle API. Dual ctor (public takes `ILogger<T>`; internal takes deps for tests). |
 | `LoggingActivityScope`     | Public sealed class | `IDisposable` bundling the diagnostic `Activity` + MEL scope frame.           |
+
+### Job Checkpoint Surface (4 types)
+
+| Type                                | Kind                | Purpose                                                                       |
+| ----------------------------------- | ------------------- | ----------------------------------------------------------------------------- |
+| `ILoggingCheckpointedJob`           | Interface           | Opt-in contract a job implements next to `BaseSchedulingJob<T>`. Declares identity only: `Name` and `JobGroup` (the Quartz `JobKey`). Implemented directly; there is no base class. |
+| `LoggingCheckpointedJobExtensions`  | Public static class | `ReadCheckpointAsync`, `MarkCheckpointRunStartedAsync`, `TryAdvanceCheckpointAsync` on `ILoggingCheckpointedJob`. Resolve the service from `ServiceLocator` at call time. |
+| `ILoggingJobCheckpointService`      | Interface           | Public so consumer tests can register a fake in `ServiceLocator`.              |
+| `LoggingJobCheckpointService`       | Public sealed class | Validates keys, guards against ambient transactions, runs the compare-and-set. Dual ctor. |
 
 ### OTel Pipeline (3 types — `internal`)
 
@@ -117,7 +131,7 @@ Roadbed.Logging contains **17 public types** organized into seven groups.
 | `InstallLogging`                | Class                | `IServiceCollectionInstaller`. Wires repositories, service, channel, hosted writer.  |
 | `LoggingBuilderExtensions`      | Public static class  | Exposes `builder.Logging.AddRoadbedDbLogging()` for OTel wire-up.                     |
 
-The repository contracts (`ILoggingActivityRepository`, `ILoggingActivityInputRepository`, `ILoggingLogEntryRepository`) and implementations are `internal` to the library; they are not part of the public surface and are split into `RepositoryInterfaces/` and `Repositories/` folders.
+The repository contracts (`ILoggingActivityRepository`, `ILoggingActivityInputRepository`, `ILoggingLogEntryRepository`, `ILoggingJobCheckpointRepository`) and implementations are `internal` to the library; they are not part of the public surface and are split into `RepositoryInterfaces/` and `Repositories/` folders.
 
 ---
 
@@ -192,7 +206,7 @@ The DDL is shipped as install scripts under [src/Roadbed.Logging/Assets/Tables/]
 
 ### Partitioning and PK rules
 
-All three MySQL tables are RANGE-partitioned monthly. The partitioning column drives every other schema decision:
+The three log tables (`activity`, `activity_input`, `log_entries`) are RANGE-partitioned monthly on MySQL. `job_checkpoint` is control state, not log data, and is **never** partitioned or pruned (see [job_checkpoint](architecture-roadbed-logging.md#job_checkpoint)). For the three log tables, the partitioning column drives every other schema decision:
 
 - **`activity` and `activity_input` partition on `created_on`.** PK is `(id, created_on)` and `(activity_id, input_activity_id, created_on)` respectively. There is no standalone `UNIQUE (id)` on `activity` — MySQL requires every unique key on a partitioned InnoDB table to contain the partition column, and uniqueness of `activity.id` is guaranteed by the caller's ULID instead of by a DB constraint.
 - **`log_entries` partitions on `event_time_utc`.** PK is `(id, event_time_utc)`. Same composite-key rule.
@@ -257,11 +271,22 @@ The high-volume append-only log store.
 - **`message_template`** is the unrendered template (the `{OriginalFormat}` attribute on the `LogRecord`); **`properties`** is JSON of the named args. Keeping these separate lets analysts aggregate log events by template across many argument values.
 - **Indexes** are composite, leading with the fleet filter and ending with `event_time_utc`: `idx_log_activity (activity_id, event_time_utc)`, `idx_log_app_time (application, event_time_utc)`, `idx_log_app_level_time (application, log_level, event_time_utc)`, `idx_log_level_time (log_level, event_time_utc)`, plus single-column `idx_log_trace` and `idx_log_time`.
 
+### job_checkpoint
+
+Control state for [Job Checkpoints](architecture-roadbed-logging.md#job-checkpoints): one row per checkpoint, holding the position a job's next run starts from. **Never pruned, never partitioned**: deleting a row makes the job behave as if it had never run (a baseline or a full backfill). Hosts' logging accounts get `SELECT, INSERT, UPDATE` on it and no `DELETE`.
+
+- **Primary key** `(application, environment, job_group, job_name, checkpoint_key)`. `application` and `environment` come from `LoggingOptions`; both are `NOT NULL` (MariaDB lets several NULLs share a UNIQUE key). `job_group` / `job_name` are the Quartz `JobKey`, `VARCHAR(200)` like Quartz's own tables. `checkpoint_key VARCHAR(100)` defaults to `''`. The key is 2,480 bytes in utf8mb4, under InnoDB's 3,072-byte limit.
+- **Key columns use `utf8mb4_bin`** (SQLite: `COLLATE BINARY`), so keys differing only by case never share a row. `utf8mb4_bin` is a PAD SPACE collation, so the service rejects key parts with leading or trailing whitespace.
+- **`position_id BIGINT`**, **`position_on DATETIME(6)`**, **`position_text VARCHAR(1024) utf8mb4_bin`**: the cursors. **`previous_position_*`**: where the last advance started, for a "covered X to Y" display.
+- **`version BIGINT`**: the compare-and-set token. Starts at 0 and moves only on advance.
+- **`advanced_by_fire_instance_id VARCHAR(140)`**: the advancing run's Quartz fire instance id, the width of Quartz.NET's own `QRTZ_FIRED_TRIGGERS.ENTRY_ID`. Joins to `activity.fire_instance_id`.
+- **`last_run_started_on`**, **`advanced_on`**, **`created_on`**, **`last_modified_on`**: UTC, stamped explicitly from the injected `TimeProvider`. `advanced_on` moves only on advance; `last_run_started_on` moves on every recorded start.
+
 ---
 
 ## LoggingActivityService
 
-`LoggingActivityService` is the only public service surface in the library. It uses the standard Roadbed dual-constructor pattern — the public constructor takes only `ILogger<LoggingActivityService>` and resolves repositories via `ServiceLocator`; the `internal` constructor takes the repositories directly for unit tests via `InternalsVisibleTo`.
+`LoggingActivityService` is the activity lifecycle service (job checkpoints have their own service; see [Job Checkpoints](architecture-roadbed-logging.md#job-checkpoints)). It uses the standard Roadbed dual-constructor pattern — the public constructor takes only `ILogger<LoggingActivityService>` and resolves repositories via `ServiceLocator`; the `internal` constructor takes the repositories directly for unit tests via `InternalsVisibleTo`.
 
 ### BeginAsync
 
@@ -362,6 +387,48 @@ catch (Exception ex)
     throw;
 }
 ```
+
+---
+
+## Job Checkpoints
+
+A scheduled job often needs durable "where did I leave off" state: the position its next run starts from. Quartz's in-memory store loses its `JobDataMap` on every restart, and `activity` is run history, not a cursor. `job_checkpoint` holds that position.
+
+**Why it lives in Roadbed.Logging.** The `logging` schema's DDL, `ILoggingDatabaseFactory`, `LoggingOptions` (schema, application, environment) and the provider-neutral executor port are all here, and Roadbed.Scheduling has no database client. Roadbed.Scheduling does not reference Roadbed.Logging and this feature does not change that: a job opts in by implementing a Roadbed.Logging interface, so scheduling-only consumers and logging-only consumers see no new dependency.
+
+### Opting in
+
+```csharp
+public sealed class FooSyncJob : BaseSchedulingJob<FooSyncJob>, ILoggingCheckpointedJob
+{
+    public string JobGroup => this.Schedule.GroupName;   // Name comes from BaseSchedulingJob
+    // ...
+}
+```
+
+`ILoggingCheckpointedJob` declares identity only. `Name` is satisfied by `BaseSchedulingJob<T>.Name`; `JobGroup` is one line. Together they are the job's Quartz `JobKey`, so checkpoint rows line up with Quartz's rows once a host moves to the persistent store. The operations are extension methods in `LoggingCheckpointedJobExtensions`, which resolve `ILoggingJobCheckpointService` from `ServiceLocator` **at call time**: Roadbed.Scheduling constructs jobs while DI is still being configured, possibly before the Logging installer has run, so a job must never resolve the service in its constructor.
+
+### Operations
+
+| Call                                                           | Effect                                                                                     |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `this.ReadCheckpointAsync(key, ct)`                            | Returns the row, or `null` when none exists ("never run"). No side effects. Throws on any database failure. |
+| `this.MarkCheckpointRunStartedAsync(key, ct)`                  | Upserts the row and sets `last_run_started_on` only. Never moves the position, `version` or `advanced_on`, so a deferred pass can record itself without resetting a gate on `advanced_on`. |
+| `this.TryAdvanceCheckpointAsync(key, version, position, fireInstanceId, ct)` | Ensures the row exists (version 0), then `UPDATE … WHERE <key> AND version = @expected`. Returns `true` when this call moved the position. |
+
+Pass `checkpoint?.Version ?? 0` as the expected version: 0 means "never run". A `false` means another run advanced first; read again rather than retrying with the same version.
+
+### Rules the code enforces
+
+1. **Advance only after the work is saved.** Nothing advances implicitly. `TryAdvanceCheckpointAsync` and `MarkCheckpointRunStartedAsync` throw inside an ambient `System.Transactions` transaction: Roadbed's MySQL connection strings set `AutoEnlist=true`, so the checkpoint write would otherwise join the job's transaction or commit ahead of it.
+2. **Compare-and-set on `version`.** Two runs can never both advance from one read. The UPDATE assigns `previous_position_*` before `position_*` because MariaDB evaluates single-table UPDATE assignments left to right.
+3. **Fail loudly.** Nothing catches a database exception; a failed read must never look like "never run". A missing row is `null`. Blank or oversized key parts throw before the database is touched (SQLite does not enforce column widths).
+4. **Never pruned, never partitioned.** Stated in every DDL header; no `DELETE` grant.
+5. **No shared transaction.** The logging database is reached on its own connection, so the job's work must be safe to repeat: a crash between saving the work and advancing repeats it.
+6. **High-water marks have a known hole.** With concurrent writers, an auto-increment id or clock time can commit out of order and be skipped forever. A checkpoint suits change detection and bounded scans; it does not replace a queue that drains by a per-row state flag (Roadbed.DbQueue).
+7. **Per environment, per application.** Both come from `LoggingOptions` and are part of the key, so environments sharing one database keep separate checkpoints.
+
+**Lost acknowledgements.** `MySqlExecutor` retries after a lost connection (errors 2006 / 2013). If an advance committed before its acknowledgement was lost, the retried UPDATE matches no row. The service then re-reads: when the row shows `version = expected + 1`, this call's fire instance id and this call's position, it returns `true`. Without a fire instance id it returns `false`.
 
 ---
 
@@ -547,6 +614,9 @@ Retention windows by table:
 | `log_entries`    | 90 days    |
 | `activity`       | 12 months  |
 | `activity_input` | 12 months  |
+| `job_checkpoint` | **Never.** Control state; never prune, never partition, never delete. |
+
+A database that predates job checkpoints gets the table from `upgrade_2026-10_job_checkpoint_mysql.txt`, which repeats `job_checkpoint/install_mysql.txt` behind `CREATE TABLE IF NOT EXISTS` and carries the grant template.
 
 Retention enforcement:
 
@@ -686,6 +756,12 @@ Inside the loader, every `this._logger.LogInformation(...)` call inherits the am
 
 **Expecting `LoggingActivityScope.Dispose` to be async.** It is not. The dispose path stops the diagnostic Activity and pops the MEL scope synchronously; persistence is the caller's job via the explicit terminal methods.
 
+**Advancing a checkpoint before the work is saved, or inside the work's `TransactionScope`.** The first turns a crash into a permanent gap; the second throws. Save the work, complete the scope, then call `TryAdvanceCheckpointAsync`.
+
+**Resolving the checkpoint service in a job's constructor.** Jobs are constructed while DI is still being configured. Use the `ILoggingCheckpointedJob` extension methods from `ExecuteAsync`; they resolve the service at call time.
+
+**Adding `job_checkpoint` to a retention pruner.** Deleting a checkpoint row makes its job re-run from the beginning. The table is never pruned.
+
 **Re-registering `LoggingChannel` in `Program.cs`.** `InstallLogging` eagerly constructs the channel from `LoggingOptions` and registers it as a concrete-instance singleton. Overwriting that registration after the installer runs (`services.AddSingleton<LoggingChannel>(new LoggingChannel(...))`) replaces the shared instance and severs the producer–consumer link.
 
 ---
@@ -730,3 +806,7 @@ The cause-2 pre-fix symptom. `LoggingChannel` was `TryAddSingleton<LoggingChanne
 | Switch to back-pressure on overflow                             | `new LoggingOptions { ChannelFullPolicy = LoggingChannelFullPolicy.BlockBriefly }`                  |
 | Quiet a noisy third-party category                              | `options.RecursionGuardCategories.Add("ThirdParty.Noisy")`                                          |
 | Read the schema scripts                                         | [src/Roadbed.Logging/Assets/Tables/](../../src/Roadbed.Logging/Assets/Tables/)                     |
+| Give a job a durable position                                   | `class FooJob : BaseSchedulingJob<FooJob>, ILoggingCheckpointedJob` + `public string JobGroup => this.Schedule.GroupName;` |
+| Read a checkpoint (`null` = never run)                          | `await this.ReadCheckpointAsync(key, ct)`                                                          |
+| Record a run start without moving the position                  | `await this.MarkCheckpointRunStartedAsync(key, ct)`                                                |
+| Advance after the work is saved                                 | `await this.TryAdvanceCheckpointAsync(key, checkpoint?.Version ?? 0, position, this.Context.FireInstanceId, ct)` |

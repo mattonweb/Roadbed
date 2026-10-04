@@ -76,13 +76,14 @@ public static class LoggingModule
                     $"to be registered before InstallModulesInAppDomain runs.");
         }
 
-        // Register the Dapper [Column] mapping for the three entities so
-        // any future read paths (and the integration test suite) materialize
-        // rows correctly.
+        // Register the Dapper [Column] mapping for the entities so read paths
+        // (the job_checkpoint read today; any future activity reads) and the
+        // integration test suite materialize rows correctly.
         DapperMapping.Configure(
             typeof(LoggingActivity),
             typeof(LoggingActivityInput),
-            typeof(LoggingLogEntry));
+            typeof(LoggingLogEntry),
+            typeof(LoggingJobCheckpoint));
 
         // TimeProvider — single in-process clock for every framework-stamped
         // timestamp and time-based wait Roadbed performs. Defaults to the
@@ -96,10 +97,16 @@ public static class LoggingModule
         services.TryAddSingleton<ILoggingActivityRepository, LoggingActivityRepository>();
         services.TryAddSingleton<ILoggingActivityInputRepository, LoggingActivityInputRepository>();
         services.TryAddSingleton<ILoggingLogEntryRepository, LoggingLogEntryRepository>();
+        services.TryAddSingleton<ILoggingJobCheckpointRepository, LoggingJobCheckpointRepository>();
 
         // Activity service — public sealed; the host injects this directly.
         services.TryAddSingleton<ILoggingActivityService, LoggingActivityService>();
         services.TryAddSingleton<LoggingActivityService>();
+
+        // Job checkpoint service — resolved by LoggingCheckpointedJobExtensions
+        // through ServiceLocator at call time. Registered for every host; a host
+        // whose jobs never implement ILoggingCheckpointedJob never resolves it.
+        services.TryAddSingleton<ILoggingJobCheckpointService, LoggingJobCheckpointService>();
 
         // LoggingChannel — process-wide shared instance. Constructed eagerly
         // from LoggingOptions and registered as a concrete singleton so

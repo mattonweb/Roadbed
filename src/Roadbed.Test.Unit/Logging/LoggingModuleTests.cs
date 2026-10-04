@@ -95,6 +95,37 @@ public class LoggingModuleTests
     }
 
     /// <summary>
+    /// Verifies that the provider installer wires the job checkpoint path: the
+    /// repository resolves with the satellite-supplied executor, and the public
+    /// checkpoint service is registered for
+    /// <see cref="LoggingCheckpointedJobExtensions"/> to resolve. The service is
+    /// checked by descriptor, not resolved, because its public constructor reads
+    /// the process-wide <c>ServiceLocator</c>.
+    /// </summary>
+    [TestMethod]
+    public void InstallLoggingSqlite_JobCheckpoint_RepositoryAndServiceRegistered()
+    {
+        // Arrange (Given)
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton(new LoggingOptions { Application = "test", Environment = "Test" });
+        services.AddSingleton<ILoggingDatabaseFactory>(BuildFactory(DataConnectionStringType.SQLite));
+
+        // Act (When)
+        new InstallLoggingSqlite().ConfigureServices(services, new ConfigurationBuilder().Build());
+
+        // Assert (Then)
+        using var provider = services.BuildServiceProvider();
+        Assert.IsNotNull(
+            provider.GetService<ILoggingJobCheckpointRepository>(),
+            "The checkpoint repository must resolve with the satellite-supplied executor injected.");
+        Assert.IsTrue(
+            services.Any(d => d.ServiceType == typeof(ILoggingJobCheckpointService)
+                && d.ImplementationType == typeof(LoggingJobCheckpointService)),
+            "The public checkpoint service must be registered for the extension methods to resolve.");
+    }
+
+    /// <summary>
     /// Verifies that two distinct <see cref="System.IServiceProvider"/>
     /// instances built from the same <see cref="IServiceCollection"/>
     /// resolve the SAME <see cref="LoggingChannel"/> object — the

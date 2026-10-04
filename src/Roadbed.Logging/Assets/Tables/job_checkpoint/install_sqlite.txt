@@ -1,0 +1,62 @@
+-- Roadbed.Logging :: job_checkpoint (SQLite)
+--
+-- Run this script against your target SQLite database file. The table
+-- is created unqualified; leave LoggingOptions.Schema empty in the host
+-- (the default) unless you have ATTACHed the database under an alias
+-- and want statements qualified by that alias.
+--
+-- What this table is
+-- ==================
+-- CONTROL STATE, NOT LOG DATA. One row per (application, environment,
+-- job_group, job_name, checkpoint_key): the position a scheduled job's
+-- next run starts from. Deleting a row makes that job behave as if it
+-- had never run (a baseline or a full backfill on its next pass).
+--
+--   * NEVER PRUNE THIS TABLE. Never include it in a retention DELETE.
+--     Retention applies to activity, activity_input and log_entries
+--     only.
+--   * Roadbed never deletes a checkpoint row.
+--
+-- Run history lives in `activity`, not here.
+--
+-- Key rules
+-- =========
+-- The key columns use COLLATE BINARY (exact, case-sensitive), matching
+-- the MySQL script's utf8mb4_bin. SQLite does not enforce declared
+-- text widths, so Roadbed.Logging validates every length in C# before
+-- it writes: application 100, environment 20, job_group 200,
+-- job_name 200, checkpoint_key 100, position_text 1024,
+-- advanced_by_fire_instance_id 140.
+--
+-- Compare-and-set
+-- ===============
+-- `version` is the optimistic-concurrency token. It changes only when
+-- the position advances; an advance wins only when its
+-- "WHERE <key> AND version = @expected" UPDATE changes exactly one row.
+--
+-- UTC contract
+-- ============
+-- last_run_started_on, advanced_on, created_on and last_modified_on are
+-- UTC, stamped explicitly by Roadbed.Logging from its injected
+-- TimeProvider. position_on is stored exactly as the job supplied it.
+
+CREATE TABLE job_checkpoint (
+     application                   TEXT     NOT NULL COLLATE BINARY
+    ,environment                   TEXT     NOT NULL COLLATE BINARY
+    ,job_group                     TEXT     NOT NULL COLLATE BINARY
+    ,job_name                      TEXT     NOT NULL COLLATE BINARY
+    ,checkpoint_key                TEXT     NOT NULL COLLATE BINARY DEFAULT ''
+    ,position_id                   INTEGER  NULL
+    ,position_on                   DATETIME NULL
+    ,position_text                 TEXT     NULL     COLLATE BINARY
+    ,previous_position_id          INTEGER  NULL
+    ,previous_position_on          DATETIME NULL
+    ,previous_position_text        TEXT     NULL     COLLATE BINARY
+    ,version                       INTEGER  NOT NULL DEFAULT 0
+    ,advanced_by_fire_instance_id  TEXT     NULL
+    ,last_run_started_on           DATETIME NULL
+    ,advanced_on                   DATETIME NULL
+    ,created_on                    DATETIME NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    ,last_modified_on              DATETIME NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    ,PRIMARY KEY (application, environment, job_group, job_name, checkpoint_key)
+);

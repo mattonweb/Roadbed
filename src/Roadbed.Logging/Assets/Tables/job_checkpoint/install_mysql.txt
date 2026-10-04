@@ -1,0 +1,83 @@
+-- Roadbed.Logging :: job_checkpoint (MySQL / MariaDB)
+--
+-- Run this script with the target database already selected:
+--     USE logging;
+--     SOURCE install_mysql.txt;   -- or paste the contents into your workbench
+--
+-- The table is created unqualified; the host's LoggingOptions.Schema
+-- should be set to the database name you selected (e.g. "logging") so
+-- the C# repository qualifies every statement consistently.
+--
+-- What this table is
+-- ==================
+-- CONTROL STATE, NOT LOG DATA. One row per (application, environment,
+-- job_group, job_name, checkpoint_key): the position a scheduled job's
+-- next run starts from. Deleting a row makes that job behave as if it
+-- had never run (a baseline or a full backfill on its next pass).
+--
+--   * NEVER PRUNE THIS TABLE. It must never be added to a retention
+--     pruner's table list. Retention applies to activity,
+--     activity_input and log_entries only.
+--   * NEVER PARTITION THIS TABLE. It holds one small row per job
+--     checkpoint, so there is nothing to retire by date.
+--   * GRANT the hosts' logging account SELECT, INSERT, UPDATE on this
+--     table and nothing more. Roadbed never deletes a checkpoint row.
+--
+-- Run history lives in `activity`, not here.
+--
+-- Key rules
+-- =========
+--   * PRIMARY KEY (application, environment, job_group, job_name,
+--     checkpoint_key) = 100 + 20 + 200 + 200 + 100 characters
+--     x 4 bytes (utf8mb4) = 2,480 bytes, under InnoDB's 3,072-byte
+--     index limit.
+--   * Key columns use utf8mb4_bin so two jobs whose names differ only by
+--     case or trailing spaces never share a checkpoint. This matches
+--     .NET's ordinal string comparison and Quartz's own JobKey equality.
+--   * job_group / job_name match the Quartz JobKey (Quartz's own
+--     QRTZ_* tables size both at VARCHAR(200)).
+--   * environment is NOT NULL: MariaDB lets several NULLs sit under one
+--     UNIQUE key, which would void the key's guarantee.
+--
+-- Compare-and-set
+-- ===============
+-- `version` is the optimistic-concurrency token. It changes only when
+-- the position advances. An advance runs
+--     UPDATE ... SET previous_position_* = position_*, position_* = @new,
+--                    version = version + 1, ...
+--     WHERE <key> AND version = @expected
+-- and wins only when exactly one row changed. MariaDB evaluates
+-- single-table UPDATE assignments left to right, so the statement sets
+-- previous_position_* BEFORE position_*.
+--
+-- advanced_by_fire_instance_id is VARCHAR(140), the width of Quartz.NET's
+-- own QRTZ_FIRED_TRIGGERS.ENTRY_ID, so every fire instance id Quartz can
+-- store fits here too.
+--
+-- UTC contract
+-- ============
+-- last_run_started_on, advanced_on, created_on and last_modified_on are
+-- UTC, stamped explicitly by Roadbed.Logging from its injected
+-- TimeProvider. position_on is stored exactly as the job supplied it
+-- (microsecond precision); Roadbed does not convert it.
+
+CREATE TABLE job_checkpoint (
+     application                   VARCHAR(100)  CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL
+    ,environment                   VARCHAR(20)   CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL
+    ,job_group                     VARCHAR(200)  CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL
+    ,job_name                      VARCHAR(200)  CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL
+    ,checkpoint_key                VARCHAR(100)  CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL DEFAULT ''
+    ,position_id                   BIGINT        NULL
+    ,position_on                   DATETIME(6)   NULL
+    ,position_text                 VARCHAR(1024) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL
+    ,previous_position_id          BIGINT        NULL
+    ,previous_position_on          DATETIME(6)   NULL
+    ,previous_position_text        VARCHAR(1024) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL
+    ,version                       BIGINT        NOT NULL DEFAULT 0
+    ,advanced_by_fire_instance_id  VARCHAR(140)  NULL
+    ,last_run_started_on           DATETIME(6)   NULL
+    ,advanced_on                   DATETIME(6)   NULL
+    ,created_on                    DATETIME(6)   NOT NULL DEFAULT (UTC_TIMESTAMP(6))
+    ,last_modified_on              DATETIME(6)   NOT NULL DEFAULT (UTC_TIMESTAMP(6)) ON UPDATE CURRENT_TIMESTAMP(6)
+    ,PRIMARY KEY (application, environment, job_group, job_name, checkpoint_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

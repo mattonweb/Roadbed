@@ -21,6 +21,34 @@
 
 ### Added
 
+- Add job checkpoints to Roadbed.Logging: durable "where did I leave
+  off" state for scheduled jobs that survives a restart, even on Quartz's
+  in-memory store. A job opts in by implementing the new
+  `ILoggingCheckpointedJob` (identity only: `Name`, already provided by
+  `BaseSchedulingJob<T>`, plus `JobGroup => this.Schedule.GroupName`) and
+  calls `ReadCheckpointAsync`, `MarkCheckpointRunStartedAsync` and
+  `TryAdvanceCheckpointAsync` (extension methods in
+  `LoggingCheckpointedJobExtensions`) from `ExecuteAsync`. Jobs that do not
+  implement the interface are unaffected. New public types:
+  `ILoggingCheckpointedJob`, `LoggingCheckpointedJobExtensions`,
+  `ILoggingJobCheckpointService`, `LoggingJobCheckpointService`,
+  `LoggingJobCheckpoint`, `LoggingJobCheckpointPosition`. State lives in a
+  new `job_checkpoint` table keyed by `(application, environment,
+  job_group, job_name, checkpoint_key)`; application and environment come
+  from `LoggingOptions`, and a checkpoint call throws when either is blank.
+  The advance is a compare-and-set on a `version` column and returns
+  whether it won; reads and writes throw on any database failure (a
+  missing row reads as `null`); both writes throw inside an ambient
+  `TransactionScope`. The table is control state: never partitioned,
+  never pruned. New DDL `Assets/Tables/job_checkpoint/install_mysql.txt`
+  and `install_sqlite.txt`, plus the migration
+  `Assets/Tables/upgrade_2026-10_job_checkpoint_mysql.txt` for existing
+  logging databases (grants: `SELECT, INSERT, UPDATE`, no `DELETE`).
+  `LoggingModule.Register` registers the repository and service. No
+  change to `activity`, `activity_input`, `log_entries`,
+  Roadbed.Scheduling, Roadbed.Common or the two provider packages. The
+  `code-roadbed-csharp` skill's logging and scheduling references now say
+  when and how to use a checkpoint.
 - Refactor Roadbed.Messaging off the Cysharp `Ulid` package onto the
   BCL-native `Guid.CreateVersion7()` (.NET 9+). The five id-generation
   sites in `BaseMessagingMessage` and `MessagingPublisher` now mint

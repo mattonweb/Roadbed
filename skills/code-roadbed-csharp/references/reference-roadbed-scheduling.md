@@ -29,6 +29,7 @@ Includes a metrics abstraction (`ISchedulingMetrics`) with a built-in logging ad
 - **MUST** register a `SchedulingPersistenceOptions` singleton with `Mode = SchedulingPersistenceMode.Persistent` plus an `ISchedulingDatabaseFactory` singleton when trigger durability across restarts or clustering is required. Without these, the installer falls back to Quartz's in-memory store — state is lost on every restart.
 - **MUST** apply Quartz's DDL (`tables_mysql_innodb.sql`, `tables_postgres.sql`, `tables_sqlite.sql`) to the target schema **before** the host starts. Roadbed.Scheduling does not run schema migrations.
 - **MUST** populate `SchedulingPersistenceOptions.SchedulerName` with a value unique to each Windows service / host process that shares the schema with another scheduler. The default `"RoadbedScheduler"` is a placeholder, not a recommendation.
+- **MUST**, when a job needs durable "where did I leave off" state, implement Roadbed.Logging's `ILoggingCheckpointedJob` **alongside** `BaseSchedulingJob<T>` (it is an opt-in interface, not a framework marker, so implementing it directly is correct) and add `public string JobGroup => this.Schedule.GroupName;`. See [Job that keeps a checkpoint](#job-that-keeps-a-checkpoint-iloggingcheckpointedjob-from-roadbedlogging).
 
 ## MUST NOT
 
@@ -43,6 +44,8 @@ Includes a metrics abstraction (`ISchedulingMetrics`) with a built-in logging ad
 - **MUST NOT** point an `ISchedulingDatabaseFactory` at a `DataConnectionStringType.SQLiteInMemory` connection. The installer throws `InvalidOperationException` because in-memory storage cannot back a Quartz persistent store.
 - **MUST NOT** share a single `SchedulerName` across two hosts unless you intend them to form a Quartz **cluster** (only one node fires each trigger, surviving nodes recover from a failed peer). For two independent schedulers sharing one schema, use distinct `SchedulerName` values.
 - **MUST NOT** read connection strings from `IConfiguration` inside Roadbed.Scheduling — connection assembly is the host's responsibility. The installer resolves `ISchedulingDatabaseFactory` from DI and uses `factory.Connecion.ConnectionString` verbatim.
+- **MUST NOT** keep a job's resume position in `JobDataMap` or a static field. On the in-memory store both are lost on every restart. Use a job checkpoint (`ILoggingCheckpointedJob`).
+- **MUST NOT** add a checkpoint to a job that does not need one. Only jobs that resume from a position (change detection, bounded scans, a gate that must survive restarts) implement `ILoggingCheckpointedJob`; every other job stays as it is.
 
 ## Code patterns
 
@@ -276,6 +279,78 @@ public sealed class FooDatadogMetrics : ISchedulingMetrics
 builder.Services.AddSingleton<ISchedulingMetrics, FooDatadogMetrics>();
 ```
 
+### Job that keeps a checkpoint (`ILoggingCheckpointedJob`, from Roadbed.Logging)
+
+Some jobs must remember **the position their next run starts from**: the newest
+change already applied, the last page token, when they last acted. On the
+in-memory store Quartz forgets `JobDataMap` on every restart, and the
+`activity` row is run history, not a cursor. A **job checkpoint** is that
+durable position, stored in Roadbed.Logging's `job_checkpoint` table.
+Roadbed.Scheduling itself is unchanged: the job opts in by implementing a
+Roadbed.Logging interface, so the host needs Roadbed.Logging wired with a
+provider package and a non-blank `LoggingOptions.Environment`.
+
+**Use one when** the job detects change since a high-water mark, walks a source
+in resumable pages, or keeps a gate that must survive restarts ("at most once
+per 24 hours"). **Do not use one** for work items that must each be processed at
+least once (use Roadbed.DbQueue or a per-row state flag: a high-water mark can
+skip rows committed out of order), for run history (`activity`), or for a job
+that recomputes everything each run.
+
+```csharp
+using Roadbed.Logging;
+using Roadbed.Scheduling;
+
+[DisallowConcurrentExecution]
+public sealed class FooSyncJob : BaseSchedulingJob<FooSyncJob>, ILoggingCheckpointedJob
+{
+    private readonly IFooSync _sync;
+
+    public FooSyncJob(IFooSync sync, ILogger<FooSyncJob> logger)
+        : base(
+            "FooSync",
+            "Copies new Foo rows",
+            new SchedulingSchedule(TimeSpan.FromMinutes(5)) { GroupName = "foo" },
+            logger)
+    {
+        this._sync = sync;
+    }
+
+    // Quartz JobKey = (Name, Schedule.GroupName). Name comes from the base class.
+    public string JobGroup => this.Schedule.GroupName;
+
+    public override async Task ExecuteAsync(CancellationToken cancellationToken)
+    {
+        LoggingJobCheckpoint? checkpoint = await this.ReadCheckpointAsync(string.Empty, cancellationToken); // null = never run
+        await this.MarkCheckpointRunStartedAsync(string.Empty, cancellationToken);
+
+        long newestId = await this._sync.CopyAfterAsync(checkpoint?.PositionId ?? 0, cancellationToken); // saved; safe to repeat
+
+        bool won = await this.TryAdvanceCheckpointAsync(
+            string.Empty,
+            checkpoint?.Version ?? 0,
+            new LoggingJobCheckpointPosition { Id = newestId },
+            this.Context.FireInstanceId,
+            cancellationToken);
+
+        this.Context.Result = won ? $"Copied through id {newestId}" : "Another run advanced the checkpoint first";
+    }
+}
+```
+
+- Call the checkpoint methods only from `ExecuteAsync`; never resolve the
+  checkpoint service in the constructor (job constructors run during DI setup).
+- Advance only **after** the work is saved, and outside any `TransactionScope`
+  (the call throws inside one). The checkpoint never shares a transaction with
+  the work, so the work must be safe to repeat.
+- A missing checkpoint reads as `null` ("never run"); a database failure throws.
+  Never turn that exception into `null`: it would trigger a baseline or a full
+  backfill.
+- Checkpoints are per application and per environment by design, even when
+  environments share one database.
+- Full rules, testing with a fake service, and the DDL: see
+  `reference-roadbed-logging.md` → *Job checkpoints*.
+
 ### Persistent storage (MySQL / PostgreSQL / SQLite) and the SchedulerName mechanism
 
 By default, Roadbed.Scheduling configures Quartz's in-memory store: triggers live in process memory and every restart loses in-flight state. To persist triggers across restarts — or to run multiple host nodes that cooperate — register a `SchedulingPersistenceOptions` POCO and an `ISchedulingDatabaseFactory` singleton **before** the call to `services.InstallModulesInAppDomain(configuration)`.
@@ -396,6 +471,19 @@ public sealed class FooJob : BaseSchedulingJob<FooJob>
         : base("FooJob", "...", new SchedulingSchedule(TimeSpan.FromMinutes(5)), logger) { }
 
     public override Task ExecuteAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+}
+```
+
+Adding Roadbed.Logging's `ILoggingCheckpointedJob` next to the base class is
+**not** this mistake. It is an opt-in interface with no base class, so the job
+implements it directly:
+
+```csharp
+// ✅ Still inherits BaseSchedulingJob<T>; the checkpoint interface is added alongside.
+public sealed class FooSyncJob : BaseSchedulingJob<FooSyncJob>, ILoggingCheckpointedJob
+{
+    public string JobGroup => this.Schedule.GroupName;
+    // ...
 }
 ```
 
