@@ -1,0 +1,34 @@
+<Project>
+
+  <!--
+    Vendoring publish (opt-in).
+
+    After each Roadbed library builds in Release, copy its own DLL, PDB and
+    XML documentation file to one shared folder that consumers vendor from.
+    Nothing happens unless the RoadbedAssembliesDir property is set, so normal
+    builds, Debug builds and test runs are unaffected. Test projects
+    (Roadbed.Test.*) are never copied.
+
+    Each project copies only its own primary output ($(TargetPath)), never the
+    Roadbed.*.dll copies of its references that also land in its bin folder.
+
+    Run it with publish-assemblies.cmd at the repository root, or directly:
+      dotnet build "src/Roadbed .NET Solution.slnx" -c Release -p:RoadbedAssembliesDir=C:\Workspace\Assemblies\Roadbed
+  -->
+  <Target Name="CopyToRoadbedAssembliesDir"
+          AfterTargets="Build"
+          Condition="'$(RoadbedAssembliesDir)' != '' and '$(Configuration)' == 'Release' and !$(MSBuildProjectName.StartsWith('Roadbed.Test'))">
+    <ItemGroup>
+      <_RoadbedVendorFile Include="$(TargetPath)" />
+      <_RoadbedVendorFile Include="$(TargetDir)$(TargetName).pdb" Condition="Exists('$(TargetDir)$(TargetName).pdb')" />
+      <_RoadbedVendorFile Include="$(TargetDir)$(TargetName).xml" Condition="Exists('$(TargetDir)$(TargetName).xml')" />
+    </ItemGroup>
+
+    <Copy SourceFiles="@(_RoadbedVendorFile)"
+          DestinationFolder="$(RoadbedAssembliesDir)"
+          SkipUnchangedFiles="true" />
+
+    <Message Importance="high" Text="$(MSBuildProjectName) -> $(RoadbedAssembliesDir)" />
+  </Target>
+
+</Project>
