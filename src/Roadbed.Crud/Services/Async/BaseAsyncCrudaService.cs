@@ -108,7 +108,7 @@ public class BaseAsyncCrudaService<TEntity, TId>
         ArgumentNullException.ThrowIfNull(entity);
 
         if (entity.Id is not null
-            && await this.ExistsAsync(entity.Id!, cancellationToken))
+            && await this.ExistsAsync(entity.Id, cancellationToken))
         {
             return await this._repository.UpdateAsync(entity, cancellationToken);
         }

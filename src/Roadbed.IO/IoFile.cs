@@ -77,7 +77,7 @@ public abstract class IoFile
         using StreamWriter streamWriter = new StreamWriter(this.FileInfo!.FullPath!);
         streamWriter.Write(fileContent);
 
-        return this.FileInfo!.FullPath!;
+        return this.FileInfo.FullPath!;
     }
 
     /// <summary>
@@ -98,7 +98,7 @@ public abstract class IoFile
         await using StreamWriter streamWriter = new StreamWriter(this.FileInfo!.FullPath!);
         await streamWriter.WriteAsync(fileContent);
 
-        return this.FileInfo!.FullPath!;
+        return this.FileInfo.FullPath!;
     }
 
     #endregion Public Methods

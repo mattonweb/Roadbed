@@ -416,7 +416,7 @@ public sealed class LoggingJobCheckpointService
         }
 
         return new LoggingJobCheckpointKey(
-            application!,
+            application,
             environment!,
             jobGroup,
             jobName,

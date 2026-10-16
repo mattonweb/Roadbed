@@ -102,7 +102,7 @@ public class BaseSyncCrudService<TEntity, TId>
         ArgumentNullException.ThrowIfNull(entity);
 
         if (entity.Id is not null
-            && this.Exists(entity.Id!))
+            && this.Exists(entity.Id))
         {
             return this._repository.Update(entity);
         }
