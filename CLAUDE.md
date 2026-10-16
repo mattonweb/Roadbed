@@ -19,6 +19,34 @@ plan, or hand-off wording that says otherwise: finish the change, build it green
 and leave it uncommitted for the human to review and commit. Read-only git (`status`, `diff`, `log`,
 `branch`, `show`) is fine.
 
+## Skills: reached by junction, owned by Matt
+
+`.claude/skills/` holds 3 Windows junctions, never copies, each gitignored (`REPO-SETUP.md` in the Signalbox repo):
+
+| Skill | Home | What it governs |
+|---|---|---|
+| `code-csharp-standards` | `C:\Source\Signalbox\skills\` | House C# rules: file layout, type taxonomy, method shape, the 500-line ceiling, allowed language features (C# 14). Its enforceable half is `src/.editorconfig` plus the analyzers |
+| `code-csharp-mstest` | `C:\Source\Signalbox\skills\` | How tests are written |
+| `code-roadbed-csharp` | `C:\Source\Roadbed\skills\` | Code that consumes the vendored `Roadbed.*` libraries |
+
+⛔ **Matt owns every skill. Never edit a file under `.claude/skills/`**, however wrong it looks; report the
+defect in your hand-back. Each skill there is a Windows junction to its home repo, never a copy, and gitignored
+(`REPO-SETUP.md` in the Signalbox repo), so an edit through it lands in another repo's working tree.
+
+**The 500-line ceiling (`code-csharp-standards` section 8): the named-exception list for this repo is EMPTY.** 6 production files exceed it today (measured 2026-10-15, counting every line, excluding test
+projects, generated and designer files and migrations): `NetHttpClient.cs` 770; `PostgresqlExecutor.cs` 614; `MySqlExecutor.cs` 602; `LoggingActivityRepository.cs` 568; `SqliteExecutor.cs` 553; `LoggingActivityService.cs` 502. **They are migration debt, not
+exceptions**: do not add to them, and do not refactor them unless a build order says to. A file that needs to
+exceed the ceiling gets its entry here, with its line count and a reason, inside the commit that creates it.
+Re-derive the list before relying on it:
+
+```bash
+find src -name '*.cs' -not -path '*/bin/*' -not -path '*/obj/*' -not -name '*.g.cs' -not -name '*.Designer.cs' -not -ipath '*/migrations/*' | grep -v -i -E '/[^/]*\.Tests?(\.[^/]*)?/' | xargs wc -l | awk '$1>500 && $2!="total"'
+```
+
+The house `.editorconfig` (`src/.editorconfig`) and `.gitattributes` are verbatim copies of Signalbox's root files,
+applied 2026-10-15. A copy that differs from Signalbox is drift: it is fixed in Signalbox first, never here
+(`code-csharp-standards` rule 19).
+
 ## The `docs/plans/` directory is RETIRED (2026-09-05)
 
 Everything in `docs/plans/` is **historical**. It is not authoritative and **no file in it is ever an
