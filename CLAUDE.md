@@ -1,5 +1,11 @@
 # CLAUDE.md — Roadbed
 
+## Recent changes (attended edits to this file — read, then carry on)
+
+- **2026-10-17 (attended session with Matt):** the `devops-git-conventions` skill is now junctioned here and
+  listed in the skills section, and this file gains the commit-scope list that skill requires each repository
+  to hold. Nothing else changed.
+
 Orientation for Claude Code sessions in this repo. Roadbed is the framework layer every Pebble & Silver
 product consumes as vendored DLLs: `Common`, `Crud`, `Data.*`, `DbQueue`, `Net`, `IO`, `Logging`,
 `Messaging`, `Scheduling`, `Secrets.KeePass`. The README and the `code-roadbed-csharp` skill describe the
@@ -21,17 +27,27 @@ and leave it uncommitted for the human to review and commit. Read-only git (`sta
 
 ## Skills: reached by junction, owned by Matt
 
-`.claude/skills/` holds 3 Windows junctions, never copies, each gitignored (`REPO-SETUP.md` in the Signalbox repo):
+`.claude/skills/` holds 4 Windows junctions, never copies, each gitignored (`REPO-SETUP.md` in the Signalbox repo):
 
 | Skill | Home | What it governs |
 |---|---|---|
 | `code-csharp-standards` | `C:\Source\Signalbox\skills\` | House C# rules: file layout, type taxonomy, method shape, the 500-line ceiling, allowed language features (C# 14). Its enforceable half is `src/.editorconfig` plus the analyzers |
 | `code-csharp-mstest` | `C:\Source\Signalbox\skills\` | How tests are written |
 | `code-roadbed-csharp` | `C:\Source\Roadbed\skills\` | Code that consumes the vendored `Roadbed.*` libraries |
+| `devops-git-conventions` | `C:\Source\Signalbox\skills\` | Git: trunk-based `feature/` and `hotfix/` branches, Conventional Commits with the 72-character subject and the verification line in every body, pull requests, merge commits, SortVer tags. Binds every commit here, whoever makes it, and every commit message a hand-back proposes. It carries no scope list; this repo's is below |
 
 ⛔ **Matt owns every skill. Never edit a file under `.claude/skills/`**, however wrong it looks; report the
 defect in your hand-back. Each skill there is a Windows junction to its home repo, never a copy, and gitignored
 (`REPO-SETUP.md` in the Signalbox repo), so an edit through it lands in another repo's working tree.
+
+**Commit scopes (`devops-git-conventions` section 3): one scope per commit, from this list, or none when the
+change spans the repository.** One per library, the `Roadbed.<Name>` suffix lowercased with dots as hyphens: `common`, `crud`, `data`,
+`data-dapper`, `data-mysql`, `data-postgresql`, `data-sqlite`, `dbqueue`, `dbqueue-mysql`, `io`, `io-csv`,
+`io-xlsx`, `logging`, `logging-mysql`, `logging-sqlite`, `messaging`, `net`, `scheduling`, `secrets-keepass`;
+`deps` (package and vendored-DLL updates), `skills` (junctions and their gitignore lines), `charter` (this file).
+A test project takes the scope of the library it tests.
+A scope that is not here is added to this list in its own commit before the commit that uses it; never invented in
+the commit. Listed 2026-10-17 from the scopes this repo's history already used (`git log --format=%s | grep -oE '^[a-z]+\([^)]+\)'`) and its project layout.
 
 **The 500-line ceiling (`code-csharp-standards` section 8): the named-exception list for this repo is EMPTY.** 6 production files exceed it today (measured 2026-10-15, counting every line, excluding test
 projects, generated and designer files and migrations): `NetHttpClient.cs` 770; `PostgresqlExecutor.cs` 614; `MySqlExecutor.cs` 602; `LoggingActivityRepository.cs` 568; `SqliteExecutor.cs` 553; `LoggingActivityService.cs` 502. **They are migration debt, not
