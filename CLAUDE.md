@@ -2,6 +2,9 @@
 
 ## Recent changes (attended edits to this file — read, then carry on)
 
+- **2026-10-18, latest (attended session with Matt):** your GitHub App was renamed from "Coding Agent for Roadbed" to "Coding Agent - Roadbed", so
+  its bot login is now `coding-agent-roadbed[bot]` (it was `coding-agent-for-roadbed[bot]`; the bot user id is unchanged). The `env` block
+  and this file now say so; `gh auth status` under Bash reports the new login. Nothing about what you may do changed.
 - **2026-10-18, later (attended session with Matt):** the working agreement is now a pointer at the author loop in the
   `devops-git-conventions` skill (`references/author-loop.md`), which carries the loop, the never-list and the lessons
   of the first runs (one `gh pr checks --watch` as the wait, `git commit -F` for long messages, read-only reads of the
@@ -9,7 +12,7 @@
   conflicting branch handed back). This file keeps only what is specific to this repository. Nothing about what you
   may do changed; where it is written did.
 - **2026-10-18 (attended session with Matt): YOUR WORKING AGREEMENT CHANGED. You now branch, commit, push and open
-  draft pull requests yourself, as this repository's own GitHub App ("Coding Agent for Roadbed"); Matt reviews and
+  draft pull requests yourself, as this repository's own GitHub App ("Coding Agent - Roadbed"); Matt reviews and
   merges.** The *Working agreement* section below is rewritten as the author loop, the *Session start* and *hub*
   sections are brought into line, and `.claude/settings.json` gained an `env` block that gives your session that
   identity (you need do nothing to use it). Lines below that say "you still never commit and never push" are
@@ -44,7 +47,7 @@ draft pull request with `gh`, wait for the checks once, mark ready when green, h
 and after the merge return to `main`. It also carries the never-list and the practicalities earlier runs taught.
 This section adds only what is specific to this repository.
 
-- **Your identity:** the GitHub App "Coding Agent for Roadbed" (`coding-agent-for-roadbed[bot]`), whose token covers this
+- **Your identity:** the GitHub App "Coding Agent - Roadbed" (`coding-agent-roadbed[bot]`), whose token covers this
   repository and no other, granted by the `env` block in `.claude/settings.json` and a credential helper on this
   machine. Run `gh` from the Bash tool; from PowerShell it is the bare CLI and will ask you to log in, which means
   "use Bash", not "log in". If `git push` or `gh` under Bash asks you to authenticate, the wiring is broken: stop,
