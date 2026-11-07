@@ -2,6 +2,10 @@
 
 ## Recent changes (attended edits to this file — read, then carry on)
 
+- **2026-11-07, later (attended session with Matt):** the set now has a maintained version: `src/Directory.Build.props` holds
+  `<Version>1.1.0</Version>` for every library with the source-revision suffix off, and `CHANGELOG.md`'s `Unreleased` is cut
+  as 1.1.0. The new bullet "The version moves with the change" in the working agreement says when you move it. Nothing
+  else changed.
 - **2026-11-07 (attended session with Matt):** `tools/publish-assemblies.ps1` now exists and is the one path into the
   drop folder `C:\Workspace\Assemblies\Roadbed`. You run it only when a Build Order says to publish, after Matt has merged;
   it refuses unless you are on a clean `main` equal to `origin/main`. Run it as `powershell -NoProfile -ExecutionPolicy Bypass -File tools\publish-assemblies.ps1`
@@ -65,6 +69,7 @@ This section adds only what is specific to this repository.
   report the exact command and message, and do not try to log in.
 - **What a merge changes downstream:** every product vendors these libraries as DLLs; a merged change changes nothing for them until the libraries are published into the drop folder `C:\Workspace\Assemblies\Roadbed` and each consumer re-vendors from it on its own leader's order. `tools/publish-assemblies.ps1` is the one path into that folder (`publish-assemblies.cmd` at the root only wraps it), run as `powershell -NoProfile -ExecutionPolicy Bypass -File tools\publish-assemblies.ps1` from the repository root. **You run it only when a Build Order says to publish**, never as a side step of a merge or because a merge landed; it refuses unless the checkout is a clean `main` equal to `origin/main`, cleans and builds the solution in Release with `RoadbedAssembliesDir` pointed at a staging folder (the targets in `src/Directory.Build.targets` copy each library's own DLL, PDB and XML), mirrors the `Roadbed.*` output into the drop folder, and writes `publish-manifest.json` (commit, each file's size, SHA-256 and version). Quote the manifest's commit and the SHA-256 of each library the order named in the hand-back, so the consumer's order can name what to vendor.
 - **`main`:** `main` is protected on GitHub and takes pull requests only.
+- **The version moves with the change.** The set's version is `<Version>` in `src/Directory.Build.props`, shared by every library, with the source-revision suffix off. A pull request that changes any library's contract or behavior moves it in the same commit (a fix moves the patch, an addition the minor, a breaking change the major) and cuts the `Unreleased` section of `CHANGELOG.md` under the new number; a pull request that leaves every library's behavior alone leaves it alone. The hand-back names the version. This is how a consumer tells whether the set it vendors has changed, so a library change without a version move is incomplete.
 - **Matt is the reviewer and the only one who merges.** Until the pipeline's review agents exist, he stands in for
   them at S24.
 
