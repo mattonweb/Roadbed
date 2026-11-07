@@ -69,7 +69,9 @@
       "PowerShell(Get-Process:*)",
       "PowerShell(Select-Object:*)",
       "PowerShell(dotnet build:*)",
-      "PowerShell(dotnet test:*)"
+      "PowerShell(dotnet test:*)",
+      "PowerShell(powershell -NoProfile -ExecutionPolicy Bypass -File tools\\publish-assemblies.ps1:*)",
+      "Bash(powershell -NoProfile -ExecutionPolicy Bypass -File tools/publish-assemblies.ps1:*)"
     ],
     "deny": [
       "Read(**/.env)",

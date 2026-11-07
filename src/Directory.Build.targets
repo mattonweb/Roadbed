@@ -12,7 +12,7 @@
     Each project copies only its own primary output ($(TargetPath)), never the
     Roadbed.*.dll copies of its references that also land in its bin folder.
 
-    Run it with publish-assemblies.cmd at the repository root, or directly:
+    Run it with tools\publish-assemblies.ps1 (publish-assemblies.cmd at the repository root wraps it), or directly:
       dotnet build "src/Roadbed .NET Solution.slnx" -c Release -p:RoadbedAssembliesDir=C:\Workspace\Assemblies\Roadbed
   -->
   <Target Name="CopyToRoadbedAssembliesDir"
