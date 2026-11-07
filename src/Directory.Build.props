@@ -1,0 +1,17 @@
+<Project>
+
+  <!--
+    THE VERSION OF THE ROADBED SET. The nineteen libraries ship together from one drop folder
+    (tools\publish-assemblies.ps1), so they carry one version, and that version is how a consumer
+    knows whether the set it vendors has changed: the pull request that changes any library's
+    contract or behavior moves it here, in the same commit, under semantic versioning (a fix moves
+    the patch, an addition the minor, a breaking change the major), and cuts the Unreleased section
+    of CHANGELOG.md under the new number. The source-revision suffix is off so the number is the
+    whole informational version; publish-manifest.json carries the commit beside it.
+  -->
+  <PropertyGroup>
+    <Version>1.1.0</Version>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+  </PropertyGroup>
+
+</Project>

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+Nothing yet.
+
+## 1.1.0 (2026-11-07)
+
+The first numbered release: every library before it reported `1.0.0` plus a commit suffix. From here the set's
+version lives in `src/Directory.Build.props` and moves in the pull request that changes a library.
+
 ### Fixed
 
 - `LoggingActivityRepository.FindStaleAsync` no longer throws
