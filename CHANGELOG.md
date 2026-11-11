@@ -4,6 +4,27 @@
 
 Nothing yet.
 
+## 1.2.0 (2026-11-10)
+
+### Added
+
+- Add Roadbed.Security.Pin, a new library that lets two applications
+  sharing one configuration prove it to each other with a short numeric
+  PIN, without a token service. `PinService.Generate()` returns the PIN
+  for the current UTC window and `PinService.Validate(int)` /
+  `Validate(string)` check one; the calculation is TOTP (RFC 6238) with
+  HMAC-SHA256 and the RFC 4226 truncation. `SecurityPinOptions` holds
+  the shared values: `SecretKeyWithPatternSupport` (the secret, which may
+  carry `{YO}` `{MO}` `{DO}` `{HO}` placeholders filled from the UTC
+  start of the window plus `OffsetYear` / `OffsetMonth` / `OffsetDay` /
+  `OffsetHour`), `WindowInSeconds` (600), `PinLength` (6, from 4 to 9)
+  and `AcceptAdjacentWindows` (true: the previous and next window are
+  accepted too). Every default is public, so a host overrides them.
+  `InstallSecurityPin` registers `PinService` as a singleton from the
+  host's registered `SecurityPinOptions`, or the defaults when there are
+  none, and `TimeProvider.System` when no clock is registered. No
+  existing library changes.
+
 ## 1.1.0 (2026-11-07)
 
 The first numbered release: every library before it reported `1.0.0` plus a commit suffix. From here the set's

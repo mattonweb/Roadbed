@@ -1,7 +1,7 @@
 <Project>
 
   <!--
-    THE VERSION OF THE ROADBED SET. The nineteen libraries ship together from one drop folder
+    THE VERSION OF THE ROADBED SET. The twenty libraries ship together from one drop folder
     (tools\publish-assemblies.ps1), so they carry one version, and that version is how a consumer
     knows whether the set it vendors has changed: the pull request that changes any library's
     contract or behavior moves it here, in the same commit, under semantic versioning (a fix moves
@@ -10,7 +10,7 @@
     whole informational version; publish-manifest.json carries the commit beside it.
   -->
   <PropertyGroup>
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
 

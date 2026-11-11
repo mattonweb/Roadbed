@@ -76,6 +76,7 @@
 		<ProjectReference Include="..\Roadbed.Net\Roadbed.Net.csproj" />
 		<ProjectReference Include="..\Roadbed.Scheduling\Roadbed.Scheduling.csproj" />
 		<ProjectReference Include="..\Roadbed.Secrets.KeePass\Roadbed.Secrets.KeePass.csproj" />
+		<ProjectReference Include="..\Roadbed.Security.Pin\Roadbed.Security.Pin.csproj" />
 	</ItemGroup>
 
 	<ItemGroup>
