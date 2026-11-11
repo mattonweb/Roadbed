@@ -19,6 +19,7 @@ Roadbed provides a cohesive set of libraries that work together to accelerate de
 - **Job Scheduling** - Automatic job discovery and scheduling with Quartz.NET, including persistent / clustered backends
 - **OpenTelemetry-First Logging** - Structured MEL output persisted to MySQL/SQLite, with first-class activity/run-instance and lineage tracking
 - **KeePass-Backed Secrets** - Self-contained `.kdbx` reader for surfacing secrets into typed options at startup
+- **Rotating Shared-Secret PINs** - A TOTP-style PIN one service sends and another validates, calculated on both sides from shared options with no token service
 - **File I/O Utilities** - Type-safe CSV operations with custom mappers
 - **SDK Development Tools** - Patterns for building type-safe API client libraries
 
@@ -44,10 +45,10 @@ Roadbed provides a cohesive set of libraries that work together to accelerate de
                   │   (Data,       │         │  (IO, IO.Csv)  │
                   │    Dapper,     │         │                │
                   │    MySql,      │         └────────────────┘
-                  │    Sqlite,     │
-                  │    Postgresql) │
-                  └────────┬───────┘
-                           │
+                  │    Sqlite,     │         ┌────────────────┐
+                  │    Postgresql) │         │    Roadbed     │
+                  └────────┬───────┘         │ .Security.Pin  │
+                           │                 └────────────────┘
                   ┌────────▼──────┐
                   │    Roadbed    │
                   │    .Common    │
@@ -74,6 +75,7 @@ For detailed documentation on each package:
 - [Roadbed.Net](/src/Roadbed.Net/README.md) - HTTP client wrapper
 - [Roadbed.Scheduling](/src/Roadbed.Scheduling/README.md) - Job scheduling
 - [Roadbed.Secrets.KeePass](/src/Roadbed.Secrets.KeePass/README.md) - KeePass-backed secret loading
+- [Roadbed.Security.Pin](/src/Roadbed.Security.Pin/README.md) - Rotating shared-secret PINs between services
 
 ## Quick Start
 
